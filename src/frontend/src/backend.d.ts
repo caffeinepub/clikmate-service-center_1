@@ -45,6 +45,11 @@ export interface CatalogItem {
     price: string;
     mediaFiles: Array<ExternalBlob>;
     mediaTypes: Array<string>;
+    itemType?: 'product' | 'service';
+    quantity?: number;
+    purchaseRate?: number;
+    saleRate?: number;
+    reorderLevel?: number;
 }
 export interface ExpenseEntry {
     id: bigint;

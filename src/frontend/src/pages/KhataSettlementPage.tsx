@@ -1,8 +1,8 @@
 import type { KhataEntry } from "@/backend.d";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useActor } from "@/hooks/useActor";
 import { useNavigate } from "@/utils/router";
+import { STORAGE_KEYS, storageSet } from "@/utils/storage";
 import {
   ArrowLeft,
   BookOpen,
@@ -240,7 +240,6 @@ function ExportDropdown({
 }
 
 export default function KhataSettlementPage() {
-  const { actor } = useActor();
   const navigate = useNavigate();
 
   // Search state
@@ -268,21 +267,6 @@ export default function KhataSettlementPage() {
   // Ledger modal
   const [showLedger, setShowLedger] = useState(false);
 
-  // ── Load all khata entries on mount ────────────────────────────────────────
-  useEffect(() => {
-    if (!actor) return;
-    actor
-      .getAllKhataEntries()
-      .then((data) => {
-        if (data.length > 0) {
-          setAllEntries(data);
-          localStorage.setItem("clikmate_khata_entries", JSON.stringify(data));
-        }
-        // If backend returned empty, localStorage-hydrated state is preserved
-      })
-      .catch(() => {});
-  }, [actor]);
-
   // ── Computed values ────────────────────────────────────────────────────────
   const totalDue = selectedEntry?.totalDue ?? 0;
   const discountVal = Math.max(
@@ -293,47 +277,34 @@ export default function KhataSettlementPage() {
   const amountNow = Number.parseFloat(amountReceiving) || 0;
 
   // ── Search handler ─────────────────────────────────────────────────────────
-  async function handleSearch() {
-    if (!actor || !searchMobile.trim()) return;
+  function handleSearch() {
+    if (!searchMobile.trim()) return;
     setSearching(true);
-    try {
-      const entry = await actor.getKhataEntry(searchMobile.trim());
-      if (entry) {
-        setSelectedEntry(entry);
-        // Also get wallet balance
-        const wb = await actor
-          .getWalletBalance(searchMobile.trim())
-          .catch(() => 0);
-        setWalletBalance(wb);
-        setDiscount("");
-        setAmountReceiving("");
-        setReference("");
-      } else {
-        // Try from loaded entries
-        const found = allEntries.find((e) => e.phone === searchMobile.trim());
-        if (found) {
-          setSelectedEntry(found);
-          const wb = await actor
-            .getWalletBalance(searchMobile.trim())
-            .catch(() => 0);
-          setWalletBalance(wb);
-        } else {
-          toast.error(
-            "No Khata record found for this mobile. Check the number and try again.",
-          );
-          setSelectedEntry(null);
-        }
-      }
-    } catch (_e) {
-      toast.error("Search failed. Please try again.");
-    } finally {
-      setSearching(false);
+    const found = allEntries.find(
+      (e) =>
+        e.phone === searchMobile.trim() ||
+        e.customerName
+          ?.toLowerCase()
+          .includes(searchMobile.trim().toLowerCase()),
+    );
+    if (found) {
+      setSelectedEntry(found);
+      setWalletBalance(0);
+      setDiscount("");
+      setAmountReceiving("");
+      setReference("");
+    } else {
+      toast.error(
+        "No Khata record found for this mobile. Check the number and try again.",
+      );
+      setSelectedEntry(null);
     }
+    setSearching(false);
   }
 
   // ── Accept Payment ─────────────────────────────────────────────────────────
   async function handleAcceptPayment() {
-    if (!actor || !selectedEntry) return;
+    if (!selectedEntry) return;
     if (amountNow <= 0) {
       toast.error("Please enter a valid amount to receive.");
       return;
@@ -344,38 +315,14 @@ export default function KhataSettlementPage() {
     }
     setSubmitting(true);
     try {
-      // 1. Reduce khata due
-      const remaining = await actor.clearKhataDue(
-        selectedEntry.phone,
-        amountNow,
-      );
-
-      // 2. Auto-inject income entry
-      const today = new Date().toISOString().slice(0, 10);
-      await actor
-        .addManualIncome(
-          "Advance / Khata Recovery",
-          amountNow,
-          today,
-          paymentMode,
-          `Khata payment from ${selectedEntry.customerName} (${selectedEntry.phone})${reference ? ` | Ref: ${reference}` : ""}`,
-        )
-        .catch(() => {});
-
-      // 3. Update local state
+      const remaining = Math.max(0, netPayable - amountNow);
       const updatedEntry = { ...selectedEntry, totalDue: remaining };
+      const updatedEntries = allEntries.map((e) =>
+        e.phone === selectedEntry.phone ? updatedEntry : e,
+      );
       setSelectedEntry(updatedEntry);
-      setAllEntries((prev) =>
-        prev.map((e) => (e.phone === selectedEntry.phone ? updatedEntry : e)),
-      );
-      localStorage.setItem(
-        "clikmate_khata_entries",
-        JSON.stringify(
-          allEntries.map((e) =>
-            e.phone === selectedEntry.phone ? updatedEntry : e,
-          ),
-        ),
-      );
+      setAllEntries(updatedEntries);
+      storageSet(STORAGE_KEYS.khata, updatedEntries);
 
       toast.success(
         `Payment of ${formatINR(amountNow)} accepted. Pending: ${formatINR(remaining)}`,
@@ -627,11 +574,7 @@ export default function KhataSettlementPage() {
                     setDiscount("");
                     setAmountReceiving("");
                     setReference("");
-                    if (actor)
-                      actor
-                        .getWalletBalance(entry.phone)
-                        .then(setWalletBalance)
-                        .catch(() => setWalletBalance(0));
+                    setWalletBalance(0);
                   }
                 }}
                 style={{

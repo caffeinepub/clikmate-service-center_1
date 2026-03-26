@@ -1,12 +1,13 @@
-import type {
-  CatalogItem,
-  KhataEntry,
-  PosSaleItem,
-  backendInterface,
-} from "@/backend.d";
-import { useActor } from "@/hooks/useActor";
-import { useAllCatalogItems } from "@/hooks/useQueries";
+import type { CatalogItem, KhataEntry, PosSaleItem } from "@/backend.d";
+// useAllCatalogItems replaced by localStorage read
 import { useNavigate } from "@/utils/router";
+import {
+  STORAGE_KEYS,
+  storageAddItem,
+  storageGet,
+  storageSet,
+  storageUpdateItem,
+} from "@/utils/storage";
 import {
   AlertCircle,
   BookOpen,
@@ -89,8 +90,8 @@ function parseRate(price: string): number {
 // ─── Main POS Component ───────────────────────────────────────────────────────
 export default function PosPage() {
   const navigate = useNavigate();
-  const { actor, isFetching } = useActor();
-  const { data: catalogItems = [] } = useAllCatalogItems();
+  const isFetching = false;
+  const catalogItems = storageGet<CatalogItem[]>(STORAGE_KEYS.catalog, []);
 
   // -- Barcode Scanner State --
   const [scannerActive, setScannerActive] = useState(true);
@@ -360,7 +361,6 @@ export default function PosPage() {
             // handled in BillingPanel via callback
             return item;
           }}
-          actor={actor as unknown as backendInterface}
           rightTab={rightTab}
         />
 
@@ -368,14 +368,10 @@ export default function PosPage() {
         {rightTab === "billing" ? (
           <BillingPanel
             catalogItems={catalogItems}
-            actor={actor as unknown as backendInterface}
             staffMobile={staffData.mobile}
           />
         ) : (
-          <AccountsPanel
-            actor={actor as unknown as backendInterface}
-            onNewBill={() => setRightTab("billing")}
-          />
+          <AccountsPanel onNewBill={() => setRightTab("billing")} />
         )}
       </div>
     </div>
@@ -390,7 +386,6 @@ function CatalogPanel({
   items: CatalogItem[];
   loading: boolean;
   onAddToCart: (item: CatalogItem) => CatalogItem;
-  actor: backendInterface | null;
   rightTab: "billing" | "accounts";
 }) {
   const [search, setSearch] = useState("");
@@ -1273,11 +1268,9 @@ function SmartPdfModal({
 // ─── Billing Panel ────────────────────────────────────────────────────────────
 function BillingPanel({
   catalogItems: _catalogItems,
-  actor,
   staffMobile,
 }: {
   catalogItems: CatalogItem[];
-  actor: backendInterface | null;
   staffMobile: string;
 }) {
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -1677,7 +1670,6 @@ function BillingPanel({
           subtotal={subtotal}
           customerMobile={customerMobile}
           staffMobile={staffMobile}
-          actor={actor}
           onClose={() => setCheckoutOpen(false)}
           onSuccess={(receiptData) => {
             setReceipt(receiptData);
@@ -1701,7 +1693,6 @@ function CheckoutModal({
   subtotal,
   customerMobile,
   staffMobile,
-  actor,
   onClose,
   onSuccess,
 }: {
@@ -1709,7 +1700,6 @@ function CheckoutModal({
   subtotal: number;
   customerMobile: string;
   staffMobile: string;
-  actor: backendInterface | null;
   onClose: () => void;
   onSuccess: (r: {
     id: string;
@@ -1727,34 +1717,71 @@ function CheckoutModal({
   const [saving, setSaving] = useState(false);
 
   async function completeSale() {
-    if (!actor) return;
     if (paymentMode === "Khata" && !phone) {
       toast.error("Customer mobile is required for Khata.");
       return;
     }
     setSaving(true);
     try {
-      const items: PosSaleItem[] = cart.map((c) => ({
-        itemName: c.name,
-        qty: BigInt(c.qty),
-        unitPrice: c.unitPrice,
-        totalPrice: c.total,
-      }));
-      const id = await actor.recordPosSale(
-        items,
-        subtotal,
-        paymentMode,
-        phone,
+      const saleId = BigInt(Date.now());
+      const newSale = {
+        id: saleId,
+        items: cart.map((c) => ({
+          itemName: c.name,
+          qty: BigInt(c.qty),
+          unitPrice: c.unitPrice,
+          totalPrice: c.total,
+        })),
+        totalAmount: subtotal,
+        paymentMethod: paymentMode,
+        customerPhone: phone,
         staffMobile,
-      );
-      // If Khata, also add to khata ledger
-      if (paymentMode === "Khata" && phone) {
-        await actor
-          .addKhataDue(phone, khataCustomer || phone, subtotal)
-          .catch(() => {});
+        createdAt: BigInt(Date.now()),
+      };
+      storageAddItem(STORAGE_KEYS.posSales, newSale);
+
+      // Deduct stock for product items
+      const catalogList = storageGet<any[]>(STORAGE_KEYS.catalog, []);
+      let stockUpdated = false;
+      const updatedCatalog = catalogList.map((catalogItem) => {
+        if (catalogItem.itemType !== "product") return catalogItem;
+        const sold = cart.find((c) => c.name === catalogItem.name);
+        if (!sold) return catalogItem;
+        stockUpdated = true;
+        return {
+          ...catalogItem,
+          quantity: Math.max(0, (catalogItem.quantity || 0) - sold.qty),
+        };
+      });
+      if (stockUpdated) {
+        storageSet(STORAGE_KEYS.catalog, updatedCatalog);
       }
+
+      if (paymentMode === "Khata" && phone) {
+        const khataList = storageGet<any[]>(STORAGE_KEYS.khata, []);
+        const existing = khataList.find((e) => e.phone === phone);
+        if (existing) {
+          const updatedList = khataList.map((e) =>
+            e.phone === phone
+              ? { ...e, totalDue: (e.totalDue || 0) + subtotal }
+              : e,
+          );
+          storageSet(STORAGE_KEYS.khata, updatedList);
+        } else {
+          storageAddItem(STORAGE_KEYS.khata, {
+            id: BigInt(Date.now()),
+            phone,
+            customerName: khataCustomer || phone,
+            name: khataCustomer || phone,
+            totalDue: subtotal,
+            createdAt: BigInt(Date.now()),
+            lastUpdated: BigInt(Date.now()),
+          });
+        }
+      }
+
       onSuccess({
-        id: `#SO-${id.toString()}`,
+        id: `#SO-${saleId.toString()}`,
         items: cart,
         total: subtotal,
         paymentMode,
@@ -2102,10 +2129,7 @@ function ReceiptModal({
 }
 
 // ─── Accounts Panel ───────────────────────────────────────────────────────────
-function AccountsPanel({
-  actor,
-  onNewBill,
-}: { actor: backendInterface | null; onNewBill?: () => void }) {
+function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
   const [sales, setSales] = useState<
     Array<{
       id: bigint;
@@ -2129,20 +2153,14 @@ function AccountsPanel({
   const [saving, setSaving] = useState(false);
   const [tallyFilter, setTallyFilter] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    if (!actor) return;
+  const loadData = useCallback(() => {
     setLoadingSales(true);
-    try {
-      const [s, k] = await Promise.all([
-        actor.getPosSales(),
-        actor.getAllKhataEntries(),
-      ]);
-      setSales(s);
-      setKhataList(k);
-    } finally {
-      setLoadingSales(false);
-    }
-  }, [actor]);
+    const s = storageGet<any[]>(STORAGE_KEYS.posSales, []);
+    const k = storageGet<KhataEntry[]>(STORAGE_KEYS.khata, []);
+    setSales(s);
+    setKhataList(k);
+    setLoadingSales(false);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -2167,63 +2185,82 @@ function AccountsPanel({
     .reduce((s, c) => s + c.totalAmount, 0);
   const totalNet = todaySales.reduce((s, c) => s + c.totalAmount, 0);
 
-  async function handleSearch() {
-    if (!actor || !khataSearch) return;
-    const entry = await actor.getKhataEntry(khataSearch).catch(() => null);
+  function handleSearch() {
+    if (!khataSearch) return;
+    const entry =
+      khataList.find(
+        (e) =>
+          e.phone === khataSearch ||
+          e.customerName?.toLowerCase().includes(khataSearch.toLowerCase()),
+      ) ?? null;
     setSearchResult(entry ?? "not_found");
   }
 
-  async function handleAddDue() {
-    if (!actor || !duePhone || !dueAmount) {
+  function handleAddDue() {
+    if (!duePhone || !dueAmount) {
       toast.error("Phone and amount required.");
       return;
     }
     setSaving(true);
-    try {
-      await actor.addKhataDue(
-        duePhone,
-        dueName || duePhone,
-        Number.parseFloat(dueAmount),
+    const existing = khataList.find((e) => e.phone === duePhone);
+    const amount = Number.parseFloat(dueAmount);
+    if (existing) {
+      const updated = khataList.map((e) =>
+        e.phone === duePhone
+          ? { ...e, totalDue: (e.totalDue || 0) + amount }
+          : e,
       );
-      toast.success("Due added!");
-      setDuePhone("");
-      setDueName("");
-      setDueAmount("");
-      loadData();
-    } catch {
-      toast.error("Failed to add due.");
-    } finally {
-      setSaving(false);
+      setKhataList(updated);
+      storageSet(STORAGE_KEYS.khata, updated);
+    } else {
+      const newEntry = {
+        id: BigInt(Date.now()),
+        phone: duePhone,
+        customerName: dueName || duePhone,
+        name: dueName || duePhone,
+        totalDue: amount,
+        createdAt: BigInt(Date.now()),
+        lastUpdated: BigInt(Date.now()),
+      };
+      const updated = storageAddItem(STORAGE_KEYS.khata, newEntry);
+      setKhataList(updated as unknown as KhataEntry[]);
     }
+    toast.success("Due added!");
+    setDuePhone("");
+    setDueName("");
+    setDueAmount("");
+    setSaving(false);
   }
 
-  async function handleClearDue() {
-    if (!actor || !clearPhone || !clearAmount) {
+  function handleClearDue() {
+    if (!clearPhone || !clearAmount) {
       toast.error("Phone and amount required.");
       return;
     }
     setSaving(true);
-    try {
-      const newBal = await actor.clearKhataDue(
-        clearPhone,
-        Number.parseFloat(clearAmount),
-      );
-      toast.success(`Due cleared! New balance: ₹${newBal.toFixed(2)}`);
-      setClearPhone("");
-      setClearAmount("");
-      if (
-        searchResult &&
-        searchResult !== "not_found" &&
-        searchResult.phone === clearPhone
-      ) {
-        setSearchResult({ ...searchResult, totalDue: newBal });
-      }
-      loadData();
-    } catch {
-      toast.error("Failed to clear due.");
-    } finally {
-      setSaving(false);
+    const clearAmt = Number.parseFloat(clearAmount);
+    const updated = khataList.map((e) =>
+      e.phone === clearPhone
+        ? { ...e, totalDue: Math.max(0, (e.totalDue || 0) - clearAmt) }
+        : e,
+    );
+    setKhataList(updated);
+    storageSet(STORAGE_KEYS.khata, updated);
+    const newBal = Math.max(
+      0,
+      (khataList.find((e) => e.phone === clearPhone)?.totalDue || 0) - clearAmt,
+    );
+    toast.success(`Due cleared! New balance: ₹${newBal.toFixed(2)}`);
+    setClearPhone("");
+    setClearAmount("");
+    if (
+      searchResult &&
+      searchResult !== "not_found" &&
+      searchResult.phone === clearPhone
+    ) {
+      setSearchResult({ ...searchResult, totalDue: newBal });
     }
+    setSaving(false);
   }
 
   return (
