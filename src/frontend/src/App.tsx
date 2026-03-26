@@ -14,8 +14,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { CartProvider, useCart } from "@/context/CartContext";
 import { HashRouter, Link, Route, Routes, useNavigate } from "@/utils/router";
 import {
+  Box as BoxIcon,
   Briefcase,
   CheckCircle,
+  CheckCircle2,
   ChevronRight,
   Clock,
   CreditCard,
@@ -24,6 +26,7 @@ import {
   HardDrive,
   Headphones,
   Languages,
+  Layers,
   LogIn,
   Mail,
   MapPin,
@@ -37,6 +40,7 @@ import {
   Shield,
   ShoppingCart,
   Star,
+  Tag,
   Trash2,
   Truck,
   User,
@@ -1003,6 +1007,258 @@ function RetailSection() {
 }
 
 // ─── Contact ──────────────────────────────────────────────────────────────────
+
+// ─── Public Rate List (Customer-Facing Catalog) ──────────────────────────────
+function PublicRateListSection() {
+  const [activeTab, setActiveTab] = useState<"all" | "product" | "service">(
+    "all",
+  );
+  const { data: allItems } = usePublishedCatalogItems();
+
+  // Filter items that have saleRate (new inventory model)
+  const rateItems = (allItems || []).filter(
+    (item) => item.saleRate !== undefined && item.saleRate !== null,
+  );
+
+  const filtered = rateItems.filter((item) => {
+    if (activeTab === "all") return true;
+    const t = (item.itemType || "service").toLowerCase();
+    return activeTab === "product" ? t === "product" : t === "service";
+  });
+
+  const getAvailability = (
+    item: ReturnType<typeof usePublishedCatalogItems>["data"][number],
+  ) => {
+    const t = (item.itemType || "service").toLowerCase();
+    if (t === "product" && (item.quantity ?? 0) <= 0) return "out";
+    return "available";
+  };
+
+  const products = rateItems.filter(
+    (i) => (i.itemType || "service").toLowerCase() === "product",
+  );
+  const services = rateItems.filter(
+    (i) => (i.itemType || "service").toLowerCase() === "service",
+  );
+
+  return (
+    <section
+      id="rate-list"
+      style={{
+        background:
+          "linear-gradient(135deg, #080d1a 0%, #0d1a2e 50%, #080d1a 100%)",
+        borderTop: "1px solid rgba(0,255,255,0.1)",
+        borderBottom: "1px solid rgba(0,255,255,0.1)",
+      }}
+      className="py-20"
+    >
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="text-center mb-12">
+          <span
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full mb-4"
+            style={{
+              background: "rgba(0,255,255,0.12)",
+              color: "#00ffff",
+              border: "1px solid rgba(0,255,255,0.25)",
+            }}
+          >
+            <Tag className="w-3 h-3" />
+            Live Price Board
+          </span>
+          <h2
+            className="text-3xl md:text-4xl font-bold mb-3"
+            style={{
+              background: "linear-gradient(135deg, #ffffff 0%, #00ffff 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
+            Our Rate List
+          </h2>
+          <p
+            style={{ color: "rgba(255,255,255,0.55)" }}
+            className="max-w-xl mx-auto text-sm"
+          >
+            Transparent pricing for all our products &amp; services. Rates
+            inclusive of service charges.
+          </p>
+        </div>
+
+        {/* Tab Filter */}
+        <div className="flex justify-center gap-3 mb-8">
+          {(["all", "product", "service"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className="px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200"
+              style={
+                activeTab === tab
+                  ? {
+                      background: "linear-gradient(135deg, #00ffff, #0080ff)",
+                      color: "#080d1a",
+                      boxShadow: "0 0 16px rgba(0,255,255,0.4)",
+                    }
+                  : {
+                      background: "rgba(255,255,255,0.06)",
+                      color: "rgba(255,255,255,0.65)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                    }
+              }
+            >
+              {tab === "all"
+                ? `All (${rateItems.length})`
+                : tab === "product"
+                  ? `Products (${products.length})`
+                  : `Services (${services.length})`}
+            </button>
+          ))}
+        </div>
+
+        {/* Grid */}
+        {filtered.length === 0 ? (
+          <div
+            className="text-center py-16"
+            style={{ color: "rgba(255,255,255,0.35)" }}
+          >
+            <Tag className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">
+              Rate list will appear here once items are published.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filtered.map((item) => {
+              const avail = getAvailability(item);
+              const isService =
+                (item.itemType || "service").toLowerCase() === "service";
+              return (
+                <div
+                  key={String(item.id)}
+                  className="rounded-2xl p-5 flex flex-col gap-3 transition-all duration-300 hover:scale-[1.02]"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(0,255,255,0.12)",
+                    backdropFilter: "blur(16px)",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+                  }}
+                >
+                  {/* Type badge */}
+                  <div className="flex items-center justify-between">
+                    <span
+                      className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
+                      style={
+                        isService
+                          ? {
+                              background: "rgba(168,85,247,0.18)",
+                              color: "#c084fc",
+                            }
+                          : {
+                              background: "rgba(0,255,255,0.12)",
+                              color: "#00ffff",
+                            }
+                      }
+                    >
+                      {isService ? (
+                        <Layers className="w-3 h-3" />
+                      ) : (
+                        <BoxIcon className="w-3 h-3" />
+                      )}
+                      {isService ? "Service" : "Product"}
+                    </span>
+                    <span
+                      className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
+                      style={
+                        avail === "out"
+                          ? {
+                              background: "rgba(239,68,68,0.18)",
+                              color: "#f87171",
+                            }
+                          : {
+                              background: "rgba(34,197,94,0.15)",
+                              color: "#4ade80",
+                            }
+                      }
+                    >
+                      {avail === "out" ? (
+                        <>⊗ Out of Stock</>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3 h-3" /> Available
+                        </>
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Name */}
+                  <h3
+                    className="font-bold text-base leading-snug"
+                    style={{ color: "rgba(255,255,255,0.92)" }}
+                  >
+                    {item.name}
+                  </h3>
+
+                  {/* Product ID */}
+                  {item.productId && (
+                    <span
+                      className="text-xs font-mono tracking-wide"
+                      style={{ color: "rgba(0,255,255,0.6)" }}
+                    >
+                      {item.productId}
+                    </span>
+                  )}
+
+                  {/* Description snippet */}
+                  {item.description && (
+                    <p
+                      className="text-xs leading-relaxed line-clamp-2"
+                      style={{ color: "rgba(255,255,255,0.45)" }}
+                    >
+                      {item.description}
+                    </p>
+                  )}
+
+                  {/* Sale Rate */}
+                  <div
+                    className="mt-auto pt-3 border-t"
+                    style={{ borderColor: "rgba(255,255,255,0.08)" }}
+                  >
+                    <span
+                      className="text-2xl font-black"
+                      style={{
+                        background: "linear-gradient(135deg, #00ffff, #00aaff)",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                      }}
+                    >
+                      ₹{Number(item.saleRate).toLocaleString("en-IN")}
+                    </span>
+                    <span
+                      className="text-xs ml-1"
+                      style={{ color: "rgba(255,255,255,0.35)" }}
+                    >
+                      {isService ? "/ unit" : "/ piece"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Footer note */}
+        <p
+          className="text-center mt-8 text-xs"
+          style={{ color: "rgba(255,255,255,0.3)" }}
+        >
+          * Prices are subject to change. Contact us for bulk order discounts.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function ContactSection() {
   const { actor } = useActor();
   const [name, setName] = useState("");
@@ -1446,6 +1702,7 @@ function LandingPage() {
         <WhyUsSection />
         <TestimonialsSection />
         <RetailSection />
+        <PublicRateListSection />
         <ContactSection />
       </main>
       <Footer />
