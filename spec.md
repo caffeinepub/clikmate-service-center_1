@@ -1,37 +1,46 @@
 # ClikMate Service Center
 
 ## Current State
-- CatalogItem type has `price: string`, `stockStatus: string` (text like 'In Stock'/'Out of Stock'), no `quantity`, `purchaseRate`, `saleRate`, `type`, or `reorderLevel` fields
-- AdminDashboard.tsx has CatalogSection with 3 separate modals: EditItemModal, AddProductModal, AddServiceModal -- all using `price` field
-- PosPage.tsx completeSale() records sale to localStorage but does NOT deduct stock from catalog
-- Table headers: Thumbnail, Item Name, Category, Price, Stock (text status), Status, Actions
-- No investment/revenue summary cards on catalog
+- Catalog module exists in AdminDashboard.tsx with Products/Services tabs
+- Edit button (Edit2 icon) exists per row, opens AddEditModal pre-filled via `editItem` state
+- CatalogItem type has: id (bigint), name, category, description, price, itemType, quantity, purchaseRate, saleRate, reorderLevel, published, etc.
+- Low stock badge shows when `quantity <= reorderLevel` (reorderLevel defaults to 5)
+- POS barcode scanner matches on `String(item.id)` or `item.name.toLowerCase()`
+- No `productId` (SKU) field exists yet
+- No `alertBefore` field (uses `reorderLevel`)
+- Low stock badge shows for ALL items including Services (no type check)
+- Edit button exists but user wants confirmation it works without duplicates
 
 ## Requested Changes (Diff)
 
 ### Add
-- New fields on CatalogItem (localStorage extension, not backend): `itemType: 'product' | 'service'`, `quantity: number`, `purchaseRate: number`, `saleRate: number`, `reorderLevel: number`
-- Migration logic: on app load, auto-migrate old items where `saleRate` is missing → map `price` to `saleRate`, set `purchaseRate=0`, `quantity=0`, `reorderLevel=5`, `itemType` inferred from category (SERVICE_CAT_LIST → 'service', else 'product')
-- Two new glassmorphism summary cards at top of CatalogSection: "Total Shop Investment" (SUM quantity*purchaseRate for products) and "Expected Revenue" (SUM quantity*saleRate for products)
-- `reorderLevel` field in Add/Edit forms (default 5, only shown for Products)
-- `itemType` dropdown (Product / Service) in all Add/Edit forms
-- For Products: show quantity, purchaseRate, saleRate, reorderLevel fields
-- For Services: hide quantity and purchaseRate fields, only show saleRate
-- Red "Low Stock" badge in catalog table when product quantity <= reorderLevel
-- Stock deduction in PosPage completeSale(): for each cart item, if matching catalog item is a Product, deduct qty sold from its quantity in localStorage
+- `productId` field (string, e.g. "ITM-1001") to CatalogItem data model
+- Auto-generation of productId on new item creation: find max existing ITM number, increment
+- "Product ID" column in Catalog table (both Products and Services tabs), shown before Item Name
+- `alertBefore` field to CatalogItem (number) -- this replaces/augments `reorderLevel`
+- "Alert Before (Low Stock Level)" mandatory number input in Add/Edit form for Products
+- Migration: existing items without productId get auto-assigned ITM-1001, ITM-1002, etc. on load
 
 ### Modify
-- CatalogSection table columns: replace "Price" with "Sale Rate", add "Purchase Rate" and "Stock" (numeric) and "Margin" columns for Products tab; for Services tab keep "Sale Rate" only
-- All 3 add/edit modals: replace single `price` field with the new fields
-- completeSale() in PosPage: after saving sale, loop cart items, find each in catalog by name, if itemType==='product' deduct qty from localStorage
-- stockStatus field becomes legacy (keep for backward compat but use quantity-based logic for Low Stock badge)
+- Low stock badge logic: only show if `item.itemType === 'product' && item.quantity <= item.alertBefore`
+- Use `alertBefore` instead of `reorderLevel` for the badge threshold (keep `reorderLevel` in form as alias or replace form label)
+- POS barcode scanner: also match against `item.productId` in addition to `String(item.id)` and `item.name`
+- Catalog table headers: add "Product ID" column
+- Add/Edit form: rename "Reorder Level" label to "Alert Before (Low Stock Level)", store as `alertBefore` (can also keep `reorderLevel` in sync)
+- Summary cards calculation: no change
+- `storageAddItem` for catalog: set productId before inserting
 
 ### Remove
-- Old text-based `stockStatus` dropdown from Add/Edit forms (replace with quantity-based system)
+- Nothing removed
 
 ## Implementation Plan
-1. Update backend.d.ts CatalogItem interface to add new optional fields (quantity, purchaseRate, saleRate, itemType, reorderLevel)
-2. Add migration function in AdminDashboard.tsx loadCatalog() that runs on mount
-3. Update AddProductModal, AddServiceModal, EditItemModal in AdminDashboard.tsx
-4. Update CatalogSection summary cards and table columns
-5. Update PosPage.tsx completeSale() to deduct product stock after sale
+1. Update `backend.d.ts` CatalogItem interface: add `productId?: string` and `alertBefore?: number`
+2. Update `utils/storage.ts`: add `generateProductId(existingItems)` helper function
+3. Update `AdminDashboard.tsx`:
+   a. Migration on load: items without `productId` get assigned ITM-1001+ in sequence
+   b. Add/Edit form FormState: add `alertBefore: string`, remove or keep `reorderLevel` field label changed to "Alert Before"
+   c. On save (new item): call `generateProductId`, set `alertBefore` from form, `reorderLevel` = same value
+   d. On save (edit item): preserve `productId`, update `alertBefore`
+   e. Catalog table: add "Product ID" column with cyan monospace badge style
+   f. Low stock badge: change condition to `item.itemType === 'product' && (item.quantity ?? 0) <= (item.alertBefore ?? item.reorderLevel ?? 5)`
+4. Update `PosPage.tsx`: in barcode match, also check `item.productId === buf`

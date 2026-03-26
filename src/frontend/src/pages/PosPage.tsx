@@ -114,6 +114,8 @@ export default function PosPage() {
         if (buf.length >= 3) {
           const found = catalogItems.find(
             (item: CatalogItem) =>
+              (item.productId &&
+                item.productId.toUpperCase() === buf.toUpperCase()) ||
               String(item.id) === buf ||
               item.name.toLowerCase().includes(buf.toLowerCase()),
           );

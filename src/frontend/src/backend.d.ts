@@ -50,6 +50,8 @@ export interface CatalogItem {
     purchaseRate?: number;
     saleRate?: number;
     reorderLevel?: number;
+  productId?: string;
+  alertBefore?: number;
 }
 export interface ExpenseEntry {
     id: bigint;

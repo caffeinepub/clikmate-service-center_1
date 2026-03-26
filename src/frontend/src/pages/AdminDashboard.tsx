@@ -29,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Link } from "@/utils/router";
 import {
   STORAGE_KEYS,
+  generateProductId,
   storageAddItem,
   storageGet,
   storageRemoveItem,
@@ -172,6 +173,7 @@ interface FormState {
   purchaseRate: string;
   quantity: string;
   reorderLevel: string;
+  alertBefore: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -188,6 +190,7 @@ const EMPTY_FORM: FormState = {
   purchaseRate: "",
   quantity: "",
   reorderLevel: "",
+  alertBefore: "",
 };
 
 // ─── Styles (inline dark theme) ───────────────────────────────────────────────
@@ -613,6 +616,12 @@ function ItemFormModal({
           quantity: editItem.quantity != null ? String(editItem.quantity) : "0",
           reorderLevel:
             editItem.reorderLevel != null ? String(editItem.reorderLevel) : "5",
+          alertBefore:
+            editItem.alertBefore != null
+              ? String(editItem.alertBefore)
+              : editItem.reorderLevel != null
+                ? String(editItem.reorderLevel)
+                : "5",
         });
       } else {
         setForm(EMPTY_FORM);
@@ -664,7 +673,11 @@ function ItemFormModal({
               : undefined,
           reorderLevel:
             form.itemType === "product"
-              ? Number.parseInt(form.reorderLevel) || 5
+              ? Number.parseInt(form.alertBefore || form.reorderLevel) || 5
+              : undefined,
+          alertBefore:
+            form.itemType === "product"
+              ? Number.parseInt(form.alertBefore || form.reorderLevel) || 5
               : undefined,
         };
         storageUpdateItem(STORAGE_KEYS.catalog, editItem.id, updatedItem);
@@ -706,8 +719,14 @@ function ItemFormModal({
               ? Number.parseInt(form.reorderLevel) || 5
               : undefined,
         };
-        storageAddItem(STORAGE_KEYS.catalog, newItem);
-        if (onItemAdded) onItemAdded(newItem);
+        const existingForId = storageGet<CatalogItem[]>(
+          STORAGE_KEYS.catalog,
+          [],
+        );
+        const productId = generateProductId(existingForId);
+        const newItemWithId = { ...newItem, productId };
+        storageAddItem(STORAGE_KEYS.catalog, newItemWithId);
+        if (onItemAdded) onItemAdded(newItemWithId);
         toast.success("Item Added Successfully");
       }
       onClose();
@@ -914,7 +933,7 @@ function ItemFormModal({
                 </div>
                 <div>
                   <label htmlFor="modal-item-reorder" style={labelStyle}>
-                    Reorder Level
+                    Alert Before (Low Stock Level)
                   </label>
                   <input
                     id="modal-item-reorder"
@@ -922,9 +941,9 @@ function ItemFormModal({
                     style={inputStyle}
                     type="number"
                     placeholder="Default 5"
-                    value={form.reorderLevel}
+                    value={form.alertBefore}
                     onChange={(e) =>
-                      setForm((p) => ({ ...p, reorderLevel: e.target.value }))
+                      setForm((p) => ({ ...p, alertBefore: e.target.value }))
                     }
                   />
                 </div>
@@ -1445,8 +1464,18 @@ function ProductFormModal({
         quantity: Number.parseInt(form.quantity) || 0,
         reorderLevel: Number.parseInt(form.reorderLevel) || 5,
       };
-      storageAddItem(STORAGE_KEYS.catalog, newItem);
-      if (onItemAdded) onItemAdded(newItem);
+      const existingForId2 = storageGet<CatalogItem[]>(
+        STORAGE_KEYS.catalog,
+        [],
+      );
+      const productId2 = generateProductId(existingForId2);
+      const newItemWithId2 = {
+        ...newItem,
+        productId: productId2,
+        alertBefore: Number.parseInt(form.reorderLevel) || 5,
+      };
+      storageAddItem(STORAGE_KEYS.catalog, newItemWithId2);
+      if (onItemAdded) onItemAdded(newItemWithId2);
       toast.success("Product Added Successfully");
       onClose();
     } catch (err) {
@@ -1614,7 +1643,7 @@ function ProductFormModal({
           </div>
           <div>
             <label htmlFor="product-reorder" style={labelStyle}>
-              Reorder Level
+              Alert Before (Low Stock Level)
             </label>
             <input
               id="product-reorder"
@@ -2392,6 +2421,7 @@ function CatalogSection({
               <thead>
                 <tr style={S.tableHeader}>
                   {[
+                    "Product ID",
                     "Thumbnail",
                     "Item Name",
                     "Category",
@@ -2440,6 +2470,24 @@ function CatalogSection({
                         idx % 2 === 0 ? "#111827" : "#0f1729";
                     }}
                   >
+                    <td style={{ padding: "12px 16px" }}>
+                      <span
+                        style={{
+                          fontFamily: "monospace",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#67e8f9",
+                          background: "rgba(6,182,212,0.12)",
+                          border: "1px solid rgba(6,182,212,0.3)",
+                          borderRadius: 6,
+                          padding: "3px 8px",
+                          letterSpacing: "0.05em",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {item.productId || "—"}
+                      </span>
+                    </td>
                     <td style={{ padding: "12px 16px" }}>
                       {item.mediaFiles.length > 0 ? (
                         <img
@@ -2566,21 +2614,24 @@ function CatalogSection({
                             <span style={{ color: "white", fontWeight: 600 }}>
                               {item.quantity ?? 0}
                             </span>
-                            {(item.quantity ?? 0) <=
-                              (item.reorderLevel ?? 5) && (
-                              <span
-                                style={{
-                                  background: "rgba(239,68,68,0.2)",
-                                  color: "#f87171",
-                                  borderRadius: 12,
-                                  padding: "2px 8px",
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                }}
-                              >
-                                ⚠ Low Stock
-                              </span>
-                            )}
+                            {item.itemType === "product" &&
+                              (item.quantity ?? 0) <=
+                                (item.alertBefore ??
+                                  item.reorderLevel ??
+                                  5) && (
+                                <span
+                                  style={{
+                                    background: "rgba(239,68,68,0.2)",
+                                    color: "#f87171",
+                                    borderRadius: 12,
+                                    padding: "2px 8px",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  ⚠ Low Stock
+                                </span>
+                              )}
                           </div>
                         </td>
                         <td
@@ -14472,7 +14523,21 @@ export default function AdminDashboard() {
       };
     });
     if (migrated) storageSet(STORAGE_KEYS.catalog, items);
-    setCatalogItems(items);
+
+    // Migrate: assign productId to items that don't have one, ensure alertBefore
+    let needsIdMigration = false;
+    let counter = 1001;
+    const withIds = items.map((item: CatalogItem) => {
+      const hasId = !!item.productId;
+      if (!hasId) needsIdMigration = true;
+      return {
+        ...item,
+        productId: item.productId || `ITM-${counter++}`,
+        alertBefore: item.alertBefore ?? item.reorderLevel ?? 5,
+      };
+    });
+    if (needsIdMigration) storageSet(STORAGE_KEYS.catalog, withIds);
+    setCatalogItems(withIds);
     setCatalogLoading(false);
   }
 

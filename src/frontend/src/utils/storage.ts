@@ -68,3 +68,17 @@ export function storageRemoveItem<T extends { id: unknown }>(
   storageSet(key, updated);
   return updated;
 }
+
+// Generate next Mall-style SKU based on existing catalog items
+export function generateProductId(
+  existingItems: Array<{ productId?: string }>,
+): string {
+  let max = 1000;
+  for (const item of existingItems) {
+    if (item.productId?.startsWith("ITM-")) {
+      const num = Number.parseInt(item.productId.replace("ITM-", ""), 10);
+      if (!Number.isNaN(num) && num >= max) max = num + 1;
+    }
+  }
+  return `ITM-${max}`;
+}
