@@ -7,8 +7,10 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   CreditCard,
   Download,
+  FileSpreadsheet,
   History,
   Loader2,
   MessageSquare,
@@ -19,6 +21,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import React from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -112,6 +115,129 @@ function buildMockLedger(entry: KhataEntry): LedgerEvent[] {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+function ExportDropdown({
+  onExportCSV,
+  onPrint,
+}: {
+  onExportCSV: () => void;
+  onPrint: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 18px",
+          borderRadius: 10,
+          border: "1px solid rgba(6,182,212,0.3)",
+          background: "rgba(6,182,212,0.1)",
+          color: "#06b6d4",
+          fontWeight: 700,
+          fontSize: 14,
+          cursor: "pointer",
+          backdropFilter: "blur(8px)",
+          transition: "all 0.15s",
+        }}
+      >
+        <Download style={{ width: 15, height: 15 }} />
+        Export
+        <ChevronDown
+          style={{
+            width: 14,
+            height: 14,
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.2s",
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            right: 0,
+            zIndex: 100,
+            background: "#0f172a",
+            border: "1px solid rgba(6,182,212,0.25)",
+            borderRadius: 10,
+            overflow: "hidden",
+            minWidth: 180,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            backdropFilter: "blur(12px)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onExportCSV();
+              setOpen(false);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              padding: "12px 16px",
+              border: "none",
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              background: "transparent",
+              color: "rgba(255,255,255,0.8)",
+              fontSize: 14,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <FileSpreadsheet
+              style={{ width: 15, height: 15, color: "#10b981" }}
+            />
+            Download CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onPrint();
+              setOpen(false);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              padding: "12px 16px",
+              border: "none",
+              background: "transparent",
+              color: "rgba(255,255,255,0.8)",
+              fontSize: 14,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <Printer style={{ width: 15, height: 15, color: "#a78bfa" }} />
+            Print / Save PDF
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function KhataSettlementPage() {
   const { actor } = useActor();
@@ -403,28 +529,10 @@ export default function KhataSettlementPage() {
             Enterprise B2B Ledger & Due Collection
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleExportCSV}
-          style={{
-            marginLeft: "auto",
-            background: "linear-gradient(135deg, #059669, #0d9488)",
-            border: "none",
-            borderRadius: 8,
-            color: "white",
-            cursor: "pointer",
-            padding: "8px 16px",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-          data-ocid="khata.export_csv.button"
-        >
-          <Download style={{ width: 15, height: 15 }} />
-          Export CSV
-        </button>
+        <ExportDropdown
+          onExportCSV={handleExportCSV}
+          onPrint={handlePrintReceipt}
+        />
       </div>
 
       <div style={{ padding: "24px 28px", maxWidth: 1400, margin: "0 auto" }}>

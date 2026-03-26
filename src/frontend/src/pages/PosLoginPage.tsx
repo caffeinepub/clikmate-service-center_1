@@ -1,13 +1,10 @@
 import { Button } from "@/components/ui/button";
-import { useActor } from "@/hooks/useActor";
 import { Link, useNavigate } from "@/utils/router";
 import { ArrowLeft, Loader2, Lock, Phone } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { backendInterface } from "../backend.d";
 
 export default function PosLoginPage() {
-  const { actor } = useActor();
   const navigate = useNavigate();
   const [mobile, setMobile] = useState("");
   const [pin, setPin] = useState("");
@@ -15,7 +12,6 @@ export default function PosLoginPage() {
   const [error, setError] = useState("");
 
   async function handleLogin() {
-    if (!actor) return;
     if (!mobile || mobile.length < 10) {
       setError("Please enter a valid 10-digit mobile number.");
       return;
@@ -27,14 +23,24 @@ export default function PosLoginPage() {
     setLoading(true);
     setError("");
     try {
-      const ok = await (actor as unknown as backendInterface).verifyStaff(
-        mobile,
-        pin,
+      const raw = localStorage.getItem("clikmate_staff_members");
+      const staffList: Array<{
+        mobile: string;
+        pin: string;
+        name?: string;
+        id?: string;
+      }> = raw ? JSON.parse(raw) : [];
+      const matched = staffList.find(
+        (s) => s.mobile === mobile && s.pin === pin,
       );
-      if (ok) {
+      if (matched) {
         localStorage.setItem(
           "staffSession",
-          JSON.stringify({ mobile, loggedInAt: Date.now() }),
+          JSON.stringify({
+            mobile,
+            name: matched.name || mobile,
+            loggedInAt: Date.now(),
+          }),
         );
         toast.success("Login successful! Welcome to POS.");
         navigate("/staff-dashboard");
@@ -175,7 +181,7 @@ export default function PosLoginPage() {
             className="w-full h-11 rounded-xl font-bold text-gray-900 hover:opacity-90"
             style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}
             onClick={handleLogin}
-            disabled={loading || !actor}
+            disabled={loading}
           >
             {loading ? (
               <>

@@ -16,6 +16,7 @@ interface ClockInEntry {
   mobile: string;
   timestamp: string;
   date: string;
+  clockOutTime?: string;
 }
 
 function getTodayStr() {
@@ -39,6 +40,24 @@ export default function StaffClockInPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const scanLineRef = useRef<HTMLDivElement>(null);
   const today = getTodayStr();
+  function doClockOut(entry: ClockInEntry) {
+    const updated = clockLog.map((e) => {
+      if (
+        e.staffName === entry.staffName &&
+        e.date === entry.date &&
+        e.timestamp === entry.timestamp
+      ) {
+        return { ...e, clockOutTime: new Date().toISOString() };
+      }
+      return e;
+    });
+    setClockLog(updated);
+    localStorage.setItem("clikmate_clock_in_log", JSON.stringify(updated));
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "clikmate_clock_in_log" }),
+    );
+    toast.success(`✅ ${entry.staffName} clocked out!`);
+  }
 
   useEffect(() => {
     try {
@@ -71,6 +90,9 @@ export default function StaffClockInPage() {
     const newLog = [...clockLog, entry];
     setClockLog(newLog);
     localStorage.setItem("clikmate_clock_in_log", JSON.stringify(newLog));
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "clikmate_clock_in_log" }),
+    );
     setSuccessMsg(
       `${member.name} Clocked In at ${getTimeStr(entry.timestamp)}`,
     );
@@ -594,19 +616,51 @@ export default function StaffClockInPage() {
                       {getTimeStr(entry.timestamp)}
                     </td>
                     <td style={{ padding: "10px 16px" }}>
-                      <span
-                        style={{
-                          background: "rgba(16,185,129,0.15)",
-                          border: "1px solid rgba(16,185,129,0.3)",
-                          borderRadius: 20,
-                          padding: "2px 10px",
-                          fontSize: 11,
-                          color: "#10b981",
-                          fontWeight: 600,
-                        }}
-                      >
-                        ✓ Present
-                      </span>
+                      {entry.clockOutTime ? (
+                        <div>
+                          <span
+                            style={{
+                              background: "rgba(16,185,129,0.15)",
+                              border: "1px solid rgba(16,185,129,0.3)",
+                              borderRadius: 20,
+                              padding: "2px 10px",
+                              fontSize: 11,
+                              color: "#10b981",
+                              fontWeight: 600,
+                              display: "block",
+                            }}
+                          >
+                            ✓ Clocked Out
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "rgba(255,255,255,0.4)",
+                              marginTop: 2,
+                              display: "block",
+                            }}
+                          >
+                            {getTimeStr(entry.clockOutTime)}
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => doClockOut(entry)}
+                          style={{
+                            padding: "4px 12px",
+                            borderRadius: 20,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: "rgba(239,68,68,0.15)",
+                            color: "#f87171",
+                            border: "1px solid rgba(239,68,68,0.3)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Clock Out
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

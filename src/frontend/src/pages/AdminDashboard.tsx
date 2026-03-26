@@ -34,11 +34,15 @@ import {
   Bell,
   BookOpen,
   Building2,
+  ChevronDown,
   ChevronRight,
   ClipboardList,
+  Download,
   Edit2,
   Eye,
   EyeOff,
+  FileSpreadsheet,
+  FileText,
   FilmIcon,
   FolderOpen,
   GripVertical,
@@ -60,6 +64,7 @@ import {
   Trash2,
   Truck,
   Upload,
+  UserCheck,
   Users,
   Wallet,
   X,
@@ -131,7 +136,8 @@ type NavSection =
   | "helpdesk"
   | "exam-paper-engine"
   | "smart-id-studio"
-  | "delivery-dispatch";
+  | "delivery-dispatch"
+  | "attendance-report";
 
 interface MediaFile {
   id: string;
@@ -660,6 +666,21 @@ function ItemFormModal({
           mediaFiles: [],
           mediaTypes,
         };
+        try {
+          const existing = JSON.parse(
+            localStorage.getItem("clikmate_catalog_items") || "[]",
+          );
+          const updated2 = [
+            newItem,
+            ...existing.filter(
+              (i: CatalogItem) => String(i.id) !== String(newItem.id),
+            ),
+          ];
+          localStorage.setItem(
+            "clikmate_catalog_items",
+            JSON.stringify(updated2),
+          );
+        } catch {}
         if (onItemAdded) onItemAdded(newItem);
         toast.success("Item Added Successfully");
       }
@@ -1351,6 +1372,21 @@ function ProductFormModal({
         mediaFiles: [],
         mediaTypes: [],
       };
+      try {
+        const existing = JSON.parse(
+          localStorage.getItem("clikmate_catalog_items") || "[]",
+        );
+        const updated2 = [
+          newItem,
+          ...existing.filter(
+            (i: CatalogItem) => String(i.id) !== String(newItem.id),
+          ),
+        ];
+        localStorage.setItem(
+          "clikmate_catalog_items",
+          JSON.stringify(updated2),
+        );
+      } catch {}
       if (onItemAdded) onItemAdded(newItem);
       toast.success("Product Added Successfully");
       onClose();
@@ -1640,6 +1676,21 @@ function ServiceFormModal({
         mediaFiles: [],
         mediaTypes: [],
       };
+      try {
+        const existing = JSON.parse(
+          localStorage.getItem("clikmate_catalog_items") || "[]",
+        );
+        const updated2 = [
+          newItem,
+          ...existing.filter(
+            (i: CatalogItem) => String(i.id) !== String(newItem.id),
+          ),
+        ];
+        localStorage.setItem(
+          "clikmate_catalog_items",
+          JSON.stringify(updated2),
+        );
+      } catch {}
       if (onItemAdded) onItemAdded(newItem);
       toast.success("Service Added Successfully");
       onClose();
@@ -3345,10 +3396,8 @@ function LiveOperationalDashboard({ actor }: { actor: backendInterface }) {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button
-            type="button"
-            data-ocid="dashboard.export_csv_button"
-            onClick={() => {
+          <ExportDropdown
+            onExportCSV={() => {
               const headers = [
                 "Order ID",
                 "Customer Name",
@@ -3378,44 +3427,8 @@ function LiveOperationalDashboard({ actor }: { actor: backendInterface }) {
               a.click();
               URL.revokeObjectURL(url);
             }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 18px",
-              borderRadius: 10,
-              border: "none",
-              background: "linear-gradient(135deg, #059669, #0d9488)",
-              color: "white",
-              fontWeight: 700,
-              fontSize: 14,
-              cursor: "pointer",
-              boxShadow: "0 4px 14px rgba(5,150,105,0.35)",
-            }}
-          >
-            Export CSV
-          </button>
-          <button
-            type="button"
-            data-ocid="dashboard.print_button"
-            onClick={() => window.print()}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 18px",
-              borderRadius: 10,
-              border: "none",
-              background: "linear-gradient(135deg, #1e3a5f, #7c3aed)",
-              color: "white",
-              fontWeight: 700,
-              fontSize: 14,
-              cursor: "pointer",
-              boxShadow: "0 4px 14px rgba(124,58,237,0.35)",
-            }}
-          >
-            Print Report (A4)
-          </button>
+            onPrint={() => window.print()}
+          />
         </div>
       </div>
 
@@ -5259,6 +5272,369 @@ function ActiveOrdersSection({ actor }: { actor: backendInterface | null }) {
   );
 }
 
+// ─── Universal Export Dropdown ────────────────────────────────────────────────
+function ExportDropdown({
+  onExportCSV,
+  onPrint,
+}: {
+  onExportCSV: () => void;
+  onPrint: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 18px",
+          borderRadius: 10,
+          border: "1px solid rgba(6,182,212,0.3)",
+          background: "rgba(6,182,212,0.1)",
+          color: "#06b6d4",
+          fontWeight: 700,
+          fontSize: 14,
+          cursor: "pointer",
+          backdropFilter: "blur(8px)",
+          transition: "all 0.15s",
+        }}
+      >
+        <Download style={{ width: 15, height: 15 }} />
+        Export
+        <ChevronDown
+          style={{
+            width: 14,
+            height: 14,
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.2s",
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            right: 0,
+            zIndex: 100,
+            background: "#0f172a",
+            border: "1px solid rgba(6,182,212,0.25)",
+            borderRadius: 10,
+            overflow: "hidden",
+            minWidth: 180,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            backdropFilter: "blur(12px)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onExportCSV();
+              setOpen(false);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              padding: "12px 16px",
+              border: "none",
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              background: "transparent",
+              color: "rgba(255,255,255,0.8)",
+              fontSize: 14,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <FileSpreadsheet
+              style={{ width: 15, height: 15, color: "#10b981" }}
+            />
+            Download CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onPrint();
+              setOpen(false);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              padding: "12px 16px",
+              border: "none",
+              background: "transparent",
+              color: "rgba(255,255,255,0.8)",
+              fontSize: 14,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <Printer style={{ width: 15, height: 15, color: "#a78bfa" }} />
+            Print / Save PDF
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Attendance Report Section ────────────────────────────────────────────────
+function AttendanceReportSection() {
+  const [log, setLog] = React.useState<
+    Array<{
+      staffName: string;
+      mobile: string;
+      timestamp: string;
+      date: string;
+      clockOutTime?: string;
+    }>
+  >([]);
+
+  React.useEffect(() => {
+    function readLog() {
+      try {
+        setLog(
+          JSON.parse(localStorage.getItem("clikmate_clock_in_log") || "[]"),
+        );
+      } catch {
+        setLog([]);
+      }
+    }
+    readLog();
+    window.addEventListener("storage", readLog);
+    return () => window.removeEventListener("storage", readLog);
+  }, []);
+
+  function exportAttendanceCSV() {
+    const headers = [
+      "Staff Name",
+      "Date",
+      "Clock-In Time",
+      "Clock-Out Time",
+      "Status",
+    ];
+    const rows = log.map((e) => [
+      e.staffName,
+      e.date,
+      new Date(e.timestamp).toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }),
+      e.clockOutTime
+        ? new Date(e.clockOutTime).toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          })
+        : "-",
+      e.clockOutTime ? "Clocked Out" : "Active/Working",
+    ]);
+    const csv = [headers, ...rows]
+      .map((r) => r.map((c) => `"${c}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clikmate-attendance-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 20,
+        }}
+      >
+        <div>
+          <h2
+            style={{ color: "white", fontWeight: 700, fontSize: 20, margin: 0 }}
+          >
+            Attendance Report
+          </h2>
+          <p
+            style={{
+              color: "rgba(255,255,255,0.45)",
+              fontSize: 13,
+              margin: "4px 0 0",
+            }}
+          >
+            Staff clock-in / clock-out log — {log.length} entries
+          </p>
+        </div>
+        <ExportDropdown
+          onExportCSV={exportAttendanceCSV}
+          onPrint={() => window.print()}
+        />
+      </div>
+      <div
+        style={{
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      >
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+              {[
+                "Staff Name",
+                "Date",
+                "Clock-In Time",
+                "Clock-Out Time",
+                "Status",
+              ].map((col) => (
+                <th
+                  key={col}
+                  style={{
+                    padding: "12px 16px",
+                    textAlign: "left",
+                    color: "rgba(255,255,255,0.4)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {log.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  style={{
+                    textAlign: "center",
+                    padding: 48,
+                    color: "rgba(255,255,255,0.3)",
+                    fontSize: 14,
+                  }}
+                >
+                  No attendance records yet. Staff can clock in from the
+                  Clock-In Station.
+                </td>
+              </tr>
+            ) : (
+              log
+                .slice()
+                .reverse()
+                .map((entry) => {
+                  const clockInStr = new Date(
+                    entry.timestamp,
+                  ).toLocaleTimeString("en-IN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true,
+                  });
+                  const clockOutStr = entry.clockOutTime
+                    ? new Date(entry.clockOutTime).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: true,
+                      })
+                    : "-";
+                  const isActive = !entry.clockOutTime;
+                  return (
+                    <tr
+                      key={entry.timestamp}
+                      style={{
+                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                      }}
+                    >
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          color: "white",
+                          fontWeight: 600,
+                          fontSize: 14,
+                        }}
+                      >
+                        {entry.staffName}
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          color: "rgba(255,255,255,0.6)",
+                          fontSize: 13,
+                        }}
+                      >
+                        {entry.date}
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          color: "#06b6d4",
+                          fontSize: 13,
+                        }}
+                      >
+                        {clockInStr}
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px 16px",
+                          color: isActive ? "rgba(255,255,255,0.3)" : "#10b981",
+                          fontSize: 13,
+                        }}
+                      >
+                        {clockOutStr}
+                      </td>
+                      <td style={{ padding: "12px 16px" }}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "3px 10px",
+                            borderRadius: 20,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            background: isActive
+                              ? "rgba(6,182,212,0.15)"
+                              : "rgba(16,185,129,0.15)",
+                            color: isActive ? "#06b6d4" : "#10b981",
+                            border: `1px solid ${isActive ? "rgba(6,182,212,0.3)" : "rgba(16,185,129,0.3)"}`,
+                          }}
+                        >
+                          {isActive ? "Active/Working" : "Clocked Out"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Shop Order History Section ───────────────────────────────────────────────
 
 function OrderHistorySection({ actor }: { actor: backendInterface | null }) {
@@ -5282,8 +5658,17 @@ function OrderHistorySection({ actor }: { actor: backendInterface | null }) {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ color: "white", fontWeight: 700, fontSize: 16 }}>
+      <div
+        style={{
+          marginBottom: 20,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <h2
+          style={{ color: "white", fontWeight: 700, fontSize: 16, margin: 0 }}
+        >
           Order History
           <span
             style={{
@@ -5298,6 +5683,37 @@ function OrderHistorySection({ actor }: { actor: backendInterface | null }) {
             {orders.length} completed
           </span>
         </h2>
+        <ExportDropdown
+          onExportCSV={() => {
+            const headers = [
+              "Order ID",
+              "Customer Name",
+              "Status",
+              "Amount (Rs)",
+              "Date",
+            ];
+            const rows = orders.map((o) => [
+              String(o.id),
+              o.customerName || "",
+              o.status || "",
+              String(o.totalAmount || 0),
+              new Date(Number(o.createdAt) / 1_000_000).toLocaleDateString(
+                "en-IN",
+              ),
+            ]);
+            const csv = [headers, ...rows]
+              .map((r) => r.map((c) => `"${c}"`).join(","))
+              .join("\n");
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `clikmate-order-history-${new Date().toISOString().split("T")[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          onPrint={() => window.print()}
+        />
       </div>
       <div style={S.table}>
         {loading ? (
@@ -13979,6 +14395,7 @@ export default function AdminDashboard() {
     "exam-paper-engine": "b2bvip",
     "smart-id-studio": "b2bvip",
     "delivery-dispatch": "b2bvip",
+    "attendance-report": "reports",
   };
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
@@ -14082,8 +14499,22 @@ export default function AdminDashboard() {
       .then((data) => {
         console.log("[loadCatalog] Loaded", data.length, "catalog items.");
         if (data.length > 0) {
-          setCatalogItems(data);
-          localStorage.setItem("clikmate_catalog_items", JSON.stringify(data));
+          const localRaw = localStorage.getItem("clikmate_catalog_items");
+          const localItems: CatalogItem[] = localRaw
+            ? JSON.parse(localRaw)
+            : [];
+          const backendIds = new Set(
+            data.map((i: CatalogItem) => String(i.id)),
+          );
+          const localOnly = localItems.filter(
+            (i: CatalogItem) => !backendIds.has(String(i.id)),
+          );
+          const merged = [...localOnly, ...data];
+          setCatalogItems(merged);
+          localStorage.setItem(
+            "clikmate_catalog_items",
+            JSON.stringify(merged),
+          );
         }
         // If backend returned empty, localStorage-hydrated state is preserved
       })
@@ -14157,6 +14588,7 @@ export default function AdminDashboard() {
     "exam-paper-engine": "Exam Paper Engine",
     "smart-id-studio": "Smart ID Studio",
     "delivery-dispatch": "Delivery Dispatch",
+    "attendance-report": "Attendance Report",
   };
 
   // ── View: Not logged in ──────────────────────────────────────────────────────
@@ -14422,6 +14854,45 @@ export default function AdminDashboard() {
 
           {/* Admin */}
           <NavGroup
+            icon={FileText}
+            label="Print & Reports"
+            groupId="reports"
+            isOpen={!!openGroups.reports}
+            onToggle={() => toggleGroup("reports")}
+          >
+            <NavItem
+              icon={UserCheck}
+              label="Attendance Report"
+              active={activeSection === "attendance-report"}
+              ocid="admin.attendance_report.tab"
+              onClick={() => {
+                setActiveSection("attendance-report");
+                setSidebarOpen(false);
+              }}
+            />
+            <NavItem
+              icon={BookOpen}
+              label="Khata/Ledger Reports"
+              active={false}
+              ocid="admin.khata_reports.shortcut"
+              onClick={() => {
+                window.location.hash = "#/admin/khata-settlement";
+                setSidebarOpen(false);
+              }}
+            />
+            <NavItem
+              icon={FolderOpen}
+              label="Order/Sales Reports"
+              active={activeSection === "order-history"}
+              ocid="admin.order_sales_reports.shortcut"
+              onClick={() => {
+                setActiveSection("order-history");
+                setSidebarOpen(false);
+              }}
+            />
+          </NavGroup>
+
+          <NavGroup
             icon={Shield}
             label="Admin"
             groupId="admin"
@@ -14669,6 +15140,7 @@ export default function AdminDashboard() {
               actor={actor as unknown as backendInterface}
               onRefresh={loadCatalog}
               onItemAdded={(item) => {
+                console.log("[onItemAdded] Adding item:", item.name, item.id);
                 setCatalogItems((prev) => {
                   const updated = [
                     item,
@@ -14716,6 +15188,7 @@ export default function AdminDashboard() {
           {activeSection === "exam-paper-engine" && <ExamPaperEngineSection />}
           {activeSection === "smart-id-studio" && <SmartIDStudioSection />}
           {activeSection === "delivery-dispatch" && <DeliveryDispatchSection />}
+          {activeSection === "attendance-report" && <AttendanceReportSection />}
         </main>
       </div>
     </div>
