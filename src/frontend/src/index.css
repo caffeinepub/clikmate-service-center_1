@@ -1,0 +1,359 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/assets/fonts/PlusJakartaSans.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* Cyber-Glass Dark Mode — single dark theme */
+    --background: 0.11 0.025 255;
+    --foreground: 0.97 0 0;
+    /* Card background MUST be dark, not white */
+    --card: 0.16 0.025 255;
+    --card-foreground: 0.97 0 0;
+    --popover: 0.15 0.02 255;
+    --popover-foreground: 0.97 0 0;
+
+    /* Primary: Electric Cyan #00E5FF */
+    --primary: 0.83 0.19 200;
+    --primary-foreground: 0.1 0.025 255;
+
+    /* Secondary: Neon Magenta #B026FF */
+    --secondary: 0.55 0.27 300;
+    --secondary-foreground: 0.97 0 0;
+
+    --muted: 0.22 0.02 255;
+    --muted-foreground: 0.65 0.01 255;
+    --accent: 0.83 0.19 200;
+    --accent-foreground: 0.1 0.025 255;
+    --destructive: 0.65 0.22 25;
+    --destructive-foreground: 0.97 0 0;
+    --border: 0.97 0 0 / 15%;
+    --input: 0.97 0 0 / 12%;
+    --ring: 0.83 0.19 200;
+
+    /* Charts */
+    --chart-1: 0.83 0.19 200;
+    --chart-2: 0.55 0.27 300;
+    --chart-3: 0.75 0.18 140;
+    --chart-4: 0.78 0.2 60;
+    --chart-5: 0.65 0.22 25;
+
+    /* Sidebar */
+    --sidebar: 0.13 0.025 255;
+    --sidebar-foreground: 0.97 0 0;
+    --sidebar-primary: 0.83 0.19 200;
+    --sidebar-primary-foreground: 0.1 0.025 255;
+    --sidebar-accent: 0.97 0 0 / 8%;
+    --sidebar-accent-foreground: 0.97 0 0;
+    --sidebar-border: 0.97 0 0 / 12%;
+    --sidebar-ring: 0.83 0.19 200;
+
+    /* Cyber extras */
+    --cyber-cyan: 0.83 0.19 200;
+    --cyber-magenta: 0.55 0.27 300;
+    --cyber-bg: 0.11 0.025 255;
+    --cyber-glass: 0.97 0 0 / 8%;
+    --cyber-glass-border: 0.97 0 0 / 18%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    background-color: oklch(0.11 0.025 255);
+    background-image: radial-gradient(
+        ellipse 80% 60% at 20% 0%,
+        oklch(0.83 0.19 200 / 0.07) 0%,
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 60% 40% at 80% 100%,
+        oklch(0.55 0.27 300 / 0.07) 0%,
+        transparent 60%
+      );
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  /* ─── Glassmorphism utilities ───────────────────────────────── */
+  .glass {
+    background: oklch(0.97 0 0 / 8%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid oklch(0.97 0 0 / 15%);
+  }
+
+  .glass-strong {
+    background: oklch(0.97 0 0 / 12%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid oklch(0.97 0 0 / 20%);
+  }
+
+  .cyber-glow-cyan {
+    box-shadow: 0 0 20px oklch(0.83 0.19 200 / 0.3), 0 0 40px
+      oklch(0.83 0.19 200 / 0.1);
+  }
+
+  .cyber-glow-magenta {
+    box-shadow: 0 0 20px oklch(0.55 0.27 300 / 0.35), 0 0 40px
+      oklch(0.55 0.27 300 / 0.12);
+  }
+
+  .cyber-btn {
+    background: linear-gradient(
+      135deg,
+      oklch(0.83 0.19 200) 0%,
+      oklch(0.55 0.27 300) 100%
+    );
+    color: oklch(0.97 0 0);
+    border-radius: 9999px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: all 0.2s ease;
+  }
+
+  .cyber-btn:hover {
+    box-shadow: 0 0 24px oklch(0.83 0.19 200 / 0.5), 0 0 48px
+      oklch(0.55 0.27 300 / 0.25);
+    transform: translateY(-1px);
+  }
+
+  .text-cyan-accent {
+    color: oklch(0.83 0.19 200);
+  }
+
+  .text-magenta-accent {
+    color: oklch(0.55 0.27 300);
+  }
+
+  .border-glass {
+    border-color: oklch(0.97 0 0 / 15%);
+  }
+
+  /* ─── Legacy brand utility classes (restored for dark theme) ── */
+
+  .blue-text {
+    color: oklch(0.83 0.19 200);
+  }
+
+  .blue-bg {
+    background-color: oklch(0.27 0.08 255);
+  }
+
+  .navy-bg {
+    background-color: oklch(0.13 0.03 255);
+  }
+
+  /* yellow-bg: warm amber — always paired with dark text */
+  .yellow-bg {
+    background-color: oklch(0.82 0.16 80);
+    color: oklch(0.1 0.02 80) !important;
+  }
+
+  .shadow-card {
+    box-shadow: 0 2px 12px oklch(0 0 0 / 0.35);
+  }
+
+  /* ─── Global white-background override ─────────────────────── */
+  /*
+   * Any element carrying Tailwind's bg-white class is converted to
+   * the dark surface. This is a blanket rule so no section or card
+   * can render as a blinding white island with invisible white text.
+   */
+  .bg-white {
+    background-color: oklch(0.16 0.025 255) !important;
+    color: oklch(0.93 0 0) !important;
+  }
+
+  /* Specific semantic elements that commonly carry bg-white */
+  section.bg-white,
+  div.bg-white,
+  article.bg-white,
+  aside.bg-white {
+    background-color: oklch(0.16 0.025 255) !important;
+    color: oklch(0.93 0 0) !important;
+  }
+
+  header.bg-white {
+    background-color: oklch(0.13 0.025 255) !important;
+    border-bottom-color: oklch(0.97 0 0 / 10%) !important;
+    color: oklch(0.93 0 0) !important;
+  }
+
+  /* bg-gray-50 / bg-slate-50 — light tints used in alternating sections */
+  .bg-gray-50,
+  .bg-slate-50 {
+    background-color: oklch(0.14 0.025 255) !important;
+    color: oklch(0.93 0 0) !important;
+  }
+
+  /* bg-gray-100 / bg-slate-100 */
+  .bg-gray-100,
+  .bg-slate-100 {
+    background-color: oklch(0.18 0.025 255) !important;
+    color: oklch(0.93 0 0) !important;
+  }
+
+  /* Ensure dark text classes that were meant for light layouts
+     remain readable — map them to high-contrast white on dark bg */
+  .bg-white .text-gray-900,
+  .bg-gray-50 .text-gray-900,
+  .bg-slate-50 .text-gray-900,
+  .bg-gray-100 .text-gray-900,
+  section.bg-white .text-gray-900 {
+    color: oklch(0.97 0 0) !important;
+  }
+
+  .bg-white .text-gray-600,
+  .bg-white .text-gray-700,
+  .bg-gray-50 .text-gray-600,
+  .bg-gray-50 .text-gray-700 {
+    color: oklch(0.75 0.01 255) !important;
+  }
+
+  /* ─── Input / Form contrast fixes ──────────────────────────── */
+  input,
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="password"],
+  input[type="search"],
+  input[type="url"],
+  input[data-slot="input"],
+  textarea,
+  select {
+    background-color: oklch(0.2 0.025 255) !important;
+    color: oklch(0.95 0 0) !important;
+    border-color: oklch(0.97 0 0 / 20%) !important;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: oklch(0.55 0.01 255) !important;
+    opacity: 1 !important;
+  }
+
+  /* Select option items need light bg for readability in browser native UI */
+  select option {
+    background-color: oklch(0.18 0.025 255);
+    color: oklch(0.95 0 0);
+  }
+
+  /* Keep OTP inputs consistent */
+  input[data-input-otp] {
+    background-color: oklch(0.22 0.025 255) !important;
+    color: oklch(0.95 0 0) !important;
+  }
+
+  /* Labels inside forms */
+  label {
+    color: oklch(0.88 0.01 255);
+  }
+
+  /* Headings — ensure always visible */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: oklch(0.97 0 0);
+  }
+
+  /* Paragraphs — readable muted white */
+  p {
+    color: oklch(0.82 0.01 255);
+  }
+
+  /* Tables inside admin panels */
+  th {
+    color: oklch(0.75 0.01 255) !important;
+  }
+
+  td {
+    color: oklch(0.9 0 0);
+  }
+}
+
+/* ─── Global Branded Letterhead (Print) ──────────────────── */
+#clikmate-global-print-letterhead {
+  display: none;
+}
+
+@media print {
+  /* Hide all UI chrome */
+  nav,
+  header,
+  aside,
+  footer,
+  .no-print,
+  [data-ocid*="sidebar"],
+  [data-ocid*="nav"],
+  button,
+  .cyber-btn {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    background-image: none !important;
+  }
+
+  /* Show letterhead */
+  #clikmate-global-print-letterhead {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: white;
+    color: black;
+    padding: 20px 40px 16px;
+    border-bottom: 3px double #1e40af;
+    z-index: 99999;
+    font-family: "Plus Jakarta Sans", sans-serif;
+  }
+
+  /* Print content readable */
+  * {
+    background-color: transparent !important;
+    color: black !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  a,
+  a:visited {
+    text-decoration: underline;
+    color: black !important;
+  }
+
+  /* Ensure main content prints */
+  main,
+  .print-content,
+  [data-ocid*="page"] {
+    visibility: visible !important;
+    position: static !important;
+    margin-top: 120px;
+  }
+}
