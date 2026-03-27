@@ -20,6 +20,7 @@ const ROLE_OPTIONS = [
   "POS_Staff",
   "Print_Staff",
   "Accountant",
+  "Rider",
 ];
 
 export default function UnifiedLoginPage() {

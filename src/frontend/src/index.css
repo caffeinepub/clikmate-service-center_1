@@ -356,4 +356,96 @@
     position: static !important;
     margin-top: 120px;
   }
+
+  /* ── A4 Letterhead Table Rules (NOT for POS thermal) ── */
+  .ui-only {
+    display: none !important;
+  }
+
+  .print-only-table {
+    display: table !important;
+  }
+
+  .a4-print-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin-top: 15px !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 12pt !important;
+  }
+
+  .a4-print-table th,
+  .a4-print-table td {
+    border: 1px solid #000 !important;
+    padding: 8px 10px !important;
+    text-align: left !important;
+    font-size: 12pt !important;
+    color: #000 !important;
+    background: white !important;
+  }
+
+  .a4-print-table th {
+    background-color: #f2f2f2 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-weight: bold !important;
+  }
+
+  /* Catalog Stock Report print area */
+  #catalog-stock-print-area {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: white !important;
+    color: black !important;
+    padding: 20mm !important;
+    font-family: Arial, sans-serif !important;
+    z-index: 99999 !important;
+  }
+}
+
+/* Hide print-only elements on screen */
+.print-only-table {
+  display: none;
+}
+#catalog-stock-print-area {
+  display: none;
+}
+
+/* ─── GST A4 Tax Invoice Print ───────────────────────────── */
+@media print {
+  #pos-gst-invoice-printable {
+    display: block !important;
+    background: white !important;
+    color: #000 !important;
+    padding: 20px !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    border-radius: 0 !important;
+    font-size: 11pt !important;
+  }
+  #pos-gst-invoice-printable * {
+    color: #000 !important;
+    background: transparent !important;
+    border-color: #ccc !important;
+  }
+  #pos-gst-invoice-printable table th {
+    background: #f2f2f2 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* When printing a GST invoice, hide the thermal receipt */
+  body:has(#pos-gst-invoice-printable) #pos-receipt-printable {
+    display: none !important;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }

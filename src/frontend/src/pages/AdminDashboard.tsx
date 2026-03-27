@@ -13,6 +13,7 @@ import type {
   TypesettingQuoteRequest,
   backendInterface,
 } from "@/backend.d";
+import { CsvBulkUploader } from "@/components/CsvBulkUploader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { db } from "@/firebase";
 import {
   fsAddDoc,
   fsDeleteDoc,
@@ -49,6 +51,7 @@ import {
   storageSet,
   storageUpdateItem,
 } from "@/utils/storage";
+import { collection, getDocs, writeBatch } from "firebase/firestore";
 import {
   AlertTriangle,
   BarChart3,
@@ -77,6 +80,7 @@ import {
   Menu,
   Package,
   Printer,
+  Receipt,
   Search,
   Settings,
   Shield,
@@ -154,6 +158,14 @@ interface MediaFile {
   existingBlob?: ExternalBlob;
 }
 
+function getGstSettings(): { enabled: boolean; shopGstNumber: string } {
+  try {
+    const raw = localStorage.getItem("clikmate_gst_settings");
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { enabled: false, shopGstNumber: "" };
+}
+
 interface FormState {
   name: string;
   category: string;
@@ -169,6 +181,9 @@ interface FormState {
   quantity: string;
   reorderLevel: string;
   alertBefore: string;
+  barcode: string;
+  gstPercentage: string;
+  hsnSac: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -186,6 +201,9 @@ const EMPTY_FORM: FormState = {
   quantity: "",
   reorderLevel: "",
   alertBefore: "",
+  barcode: "",
+  gstPercentage: "0",
+  hsnSac: "",
 };
 
 // ─── Styles (inline dark theme) ───────────────────────────────────────────────
@@ -592,7 +610,10 @@ function ItemFormModal({
         const mediaFiles: MediaFile[] = editItem.mediaFiles.map(
           (blob, idx) => ({
             id: `existing-${idx}`,
-            previewUrl: blob.getDirectURL(),
+            previewUrl:
+              typeof blob === "string"
+                ? blob
+                : (blob as any).getDirectURL?.() || "",
             type: (editItem.mediaTypes[idx] || "image") as "image" | "video",
             name: `Media ${idx + 1}`,
             progress: 100,
@@ -624,6 +645,12 @@ function ItemFormModal({
               : editItem.reorderLevel != null
                 ? String(editItem.reorderLevel)
                 : "5",
+          barcode: editItem.barcode || "",
+          gstPercentage:
+            (editItem as any).gstPercentage != null
+              ? String((editItem as any).gstPercentage)
+              : "0",
+          hsnSac: (editItem as any).hsnSac || "",
         });
       } else {
         setForm(EMPTY_FORM);
@@ -646,7 +673,7 @@ function ItemFormModal({
         return;
       }
       if (editItem) {
-        const updatedItem: CatalogItem = {
+        const updatedItem: CatalogItem & Record<string, unknown> = {
           ...editItem,
           name: form.name,
           category: form.category,
@@ -681,6 +708,9 @@ function ItemFormModal({
             form.itemType === "product"
               ? Number.parseInt(form.alertBefore || form.reorderLevel) || 5
               : undefined,
+          barcode: form.barcode || "",
+          gstPercentage: Number(form.gstPercentage) || 0,
+          hsnSac: form.hsnSac || "",
         };
         await fsUpdateDoc(
           "catalog",
@@ -691,7 +721,7 @@ function ItemFormModal({
         onSaved();
       } else {
         const newId = Date.now() as unknown as bigint;
-        const newItem: CatalogItem = {
+        const newItem: CatalogItem & Record<string, unknown> = {
           id: newId,
           name: form.name,
           category: form.category,
@@ -724,6 +754,9 @@ function ItemFormModal({
             form.itemType === "product"
               ? Number.parseInt(form.reorderLevel) || 5
               : undefined,
+          barcode: form.barcode || "",
+          gstPercentage: Number(form.gstPercentage) || 0,
+          hsnSac: form.hsnSac || "",
         };
         const existingItems = await fsGetCollection<any>("catalog");
         const productId = generateProductId(existingItems);
@@ -1001,6 +1034,67 @@ function ItemFormModal({
                 }
               />
             </div>
+
+            <div>
+              <label htmlFor="modal-item-barcode" style={labelStyle}>
+                Barcode (Optional)
+              </label>
+              <input
+                id="modal-item-barcode"
+                data-ocid="admin.barcode.input"
+                style={inputStyle}
+                placeholder="e.g. 8901234567890"
+                value={form.barcode}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, barcode: e.target.value }))
+                }
+              />
+            </div>
+
+            {getGstSettings().enabled && (
+              <>
+                <div>
+                  <label htmlFor="modal-item-gst-pct" style={labelStyle}>
+                    GST %
+                  </label>
+                  <select
+                    id="modal-item-gst-pct"
+                    data-ocid="admin.item.gst_select"
+                    value={form.gstPercentage}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, gstPercentage: e.target.value }))
+                    }
+                    style={inputStyle}
+                  >
+                    {["0", "5", "12", "18", "28"].map((v) => (
+                      <option
+                        key={v}
+                        value={v}
+                        style={{ background: "#0f172a" }}
+                      >
+                        {v}%
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="modal-item-hsnsac" style={labelStyle}>
+                    HSN/SAC Code (optional)
+                  </label>
+                  <input
+                    id="modal-item-hsnsac"
+                    data-ocid="admin.item.hsnsac.input"
+                    type="text"
+                    placeholder="e.g. 4820, 998314"
+                    value={form.hsnSac}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, hsnSac: e.target.value }))
+                    }
+                    style={inputStyle}
+                  />
+                </div>
+              </>
+            )}
 
             {form.category === "CSC & Govt Services" && (
               <div>
@@ -1467,6 +1561,9 @@ function ProductFormModal({
     quantity: "",
     reorderLevel: "",
     description: "",
+    barcode: "",
+    gstPercentage: "0",
+    hsnSac: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -1480,6 +1577,9 @@ function ProductFormModal({
         quantity: "",
         reorderLevel: "",
         description: "",
+        barcode: "",
+        gstPercentage: "0",
+        hsnSac: "",
       });
   }, [open]);
 
@@ -1491,7 +1591,7 @@ function ProductFormModal({
     }
     setSaving(true);
     try {
-      const newItem: CatalogItem = {
+      const newItem: CatalogItem & Record<string, unknown> = {
         id: Date.now() as unknown as bigint,
         name: form.name,
         category: form.category,
@@ -1525,6 +1625,9 @@ function ProductFormModal({
         ...newItem,
         productId: productId2,
         alertBefore: Number.parseInt(form.reorderLevel) || 5,
+        barcode: form.barcode || "",
+        gstPercentage: Number(form.gstPercentage) || 0,
+        hsnSac: form.hsnSac || "",
       };
       await fsSetDoc("catalog", productId2, newItemWithId2);
       if (onItemAdded) onItemAdded(newItemWithId2);
@@ -1780,6 +1883,61 @@ function ProductFormModal({
               }
             />
           </div>
+          <div>
+            <label htmlFor="product-barcode" style={labelStyle}>
+              Barcode (Optional)
+            </label>
+            <input
+              id="product-barcode"
+              data-ocid="admin.product_barcode.input"
+              style={inputStyle}
+              placeholder="e.g. 8901234567890"
+              value={form.barcode || ""}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, barcode: e.target.value }))
+              }
+            />
+          </div>
+          {getGstSettings().enabled && (
+            <>
+              <div>
+                <label htmlFor="product-gst-pct" style={labelStyle}>
+                  GST %
+                </label>
+                <select
+                  id="product-gst-pct"
+                  data-ocid="admin.product.gst_select"
+                  value={form.gstPercentage || "0"}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, gstPercentage: e.target.value }))
+                  }
+                  style={inputStyle}
+                >
+                  {["0", "5", "12", "18", "28"].map((v) => (
+                    <option key={v} value={v} style={{ background: "#0f172a" }}>
+                      {v}%
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="product-hsnsac" style={labelStyle}>
+                  HSN/SAC Code (optional)
+                </label>
+                <input
+                  id="product-hsnsac"
+                  data-ocid="admin.product.hsnsac.input"
+                  type="text"
+                  placeholder="e.g. 4820, 998314"
+                  value={form.hsnSac || ""}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, hsnSac: e.target.value }))
+                  }
+                  style={inputStyle}
+                />
+              </div>
+            </>
+          )}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button
               type="button"
@@ -1852,6 +2010,9 @@ function ServiceFormModal({
     description: "",
     requiredDocuments: "",
     requiresPdfCalc: false,
+    barcode: "",
+    gstPercentage: "0",
+    hsnSac: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -1864,6 +2025,9 @@ function ServiceFormModal({
         description: "",
         requiredDocuments: "",
         requiresPdfCalc: false,
+        barcode: "",
+        gstPercentage: "0",
+        hsnSac: "",
       });
   }, [open]);
 
@@ -1875,7 +2039,7 @@ function ServiceFormModal({
     }
     setSaving(true);
     try {
-      const newItem: CatalogItem = {
+      const newItem: CatalogItem & Record<string, unknown> = {
         id: Date.now() as unknown as bigint,
         name: form.name,
         category: form.category,
@@ -1892,6 +2056,9 @@ function ServiceFormModal({
         itemType: mainCategorySvc,
         saleRate: sr,
         purchaseRate: mainCategorySvc === "product" ? 0 : 0,
+        barcode: form.barcode || "",
+        gstPercentage: Number(form.gstPercentage) || 0,
+        hsnSac: form.hsnSac || "",
       };
       const existingItems3 = await fsGetCollection<any>("catalog");
       const svcProductId = generateProductId(existingItems3);
@@ -2188,6 +2355,61 @@ function ServiceFormModal({
               }
             />
           </div>
+          <div>
+            <label htmlFor="service-barcode" style={labelStyle}>
+              Barcode (Optional)
+            </label>
+            <input
+              id="service-barcode"
+              data-ocid="admin.service_barcode.input"
+              style={inputStyle}
+              placeholder="e.g. SVC-001 or printed chart code"
+              value={form.barcode || ""}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, barcode: e.target.value }))
+              }
+            />
+          </div>
+          {getGstSettings().enabled && (
+            <>
+              <div>
+                <label htmlFor="service-gst-pct" style={labelStyle}>
+                  GST %
+                </label>
+                <select
+                  id="service-gst-pct"
+                  data-ocid="admin.service.gst_select"
+                  value={form.gstPercentage || "0"}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, gstPercentage: e.target.value }))
+                  }
+                  style={inputStyle}
+                >
+                  {["0", "5", "12", "18", "28"].map((v) => (
+                    <option key={v} value={v} style={{ background: "#0f172a" }}>
+                      {v}%
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="service-hsnsac" style={labelStyle}>
+                  HSN/SAC Code (optional)
+                </label>
+                <input
+                  id="service-hsnsac"
+                  data-ocid="admin.service.hsnsac.input"
+                  type="text"
+                  placeholder="e.g. 998314"
+                  value={form.hsnSac || ""}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, hsnSac: e.target.value }))
+                  }
+                  style={inputStyle}
+                />
+              </div>
+            </>
+          )}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button
               type="button"
@@ -2261,7 +2483,7 @@ function ManageCategoriesModal({
     }
   };
 
-  const addCategory = () => {
+  const addCategory = async () => {
     if (!newName.trim()) return;
     const id = `cat-${Date.now()}`;
     const newCat: CategoryEntry = {
@@ -2269,24 +2491,40 @@ function ManageCategoriesModal({
       name: newName.trim(),
       appliesTo: newType,
     };
-    save([...categories, newCat]);
+    try {
+      await save([...categories, newCat]);
+    } catch (e) {
+      console.error("Category save failed:", e);
+      toast.error("Failed to save category.");
+    }
     setNewName("");
   };
 
-  const deleteCategory = (id: string) =>
-    save(categories.filter((c) => c.id !== id));
+  const deleteCategory = async (id: string) => {
+    try {
+      await save(categories.filter((c) => c.id !== id));
+    } catch (e) {
+      console.error("Category delete failed:", e);
+      toast.error("Failed to delete category.");
+    }
+  };
 
   const startEdit = (cat: CategoryEntry) => {
     setEditId(cat.id);
     setEditName(cat.name);
   };
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editName.trim()) return;
-    save(
-      categories.map((c) =>
-        c.id === editId ? { ...c, name: editName.trim() } : c,
-      ),
-    );
+    try {
+      await save(
+        categories.map((c) =>
+          c.id === editId ? { ...c, name: editName.trim() } : c,
+        ),
+      );
+    } catch (e) {
+      console.error("Category edit failed:", e);
+      toast.error("Failed to save edit.");
+    }
     setEditId(null);
   };
 
@@ -2644,7 +2882,7 @@ function CatalogSection({
         }
       }
       const updated = await fsGetCollection<any>("catalog");
-      onItemAdded(updated[0]); // trigger parent refresh
+      if (updated.length > 0) onItemAdded(updated[0]);
       onRefresh();
       toast.success(`✓ Migration complete. ${count} items updated.`);
     } catch (err) {
@@ -2671,8 +2909,9 @@ function CatalogSection({
   const SERVICE_CAT_LIST = serviceCategories;
   const tabFiltered = items.filter((item) =>
     catalogTab === "services"
-      ? SERVICE_CAT_LIST.includes(item.category)
-      : !SERVICE_CAT_LIST.includes(item.category),
+      ? item.itemType === "service"
+      : item.itemType === "product" ||
+        (!item.itemType && !SERVICE_CAT_LIST.includes(item.category)),
   );
   const filtered = tabFiltered.filter(
     (item) =>
@@ -2682,26 +2921,39 @@ function CatalogSection({
 
   async function handleTogglePublish(item: CatalogItem) {
     setTogglingId(item.id);
-    await fsUpdateDoc("catalog", String(item.productId || item.id), {
-      published: !item.published,
-    });
-    onRefresh();
-    toast.success(item.published ? "Item hidden." : "Item published!");
-    setTogglingId(null);
+    try {
+      await fsUpdateDoc("catalog", String(item.productId || item.id), {
+        published: !item.published,
+      });
+      onRefresh();
+      toast.success(item.published ? "Item hidden." : "Item published!");
+    } catch (e) {
+      console.error("Toggle publish failed:", e);
+      toast.error("Update failed. Please try again.");
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeletingId(deleteTarget.id);
-    await fsDeleteDoc(
-      "catalog",
-      String(deleteTarget.productId || deleteTarget.id),
-    );
-    onRefresh();
-    toast.success("Item deleted.");
-    setDeleteOpen(false);
-    setDeleteTarget(null);
-    setDeletingId(null);
+    try {
+      await fsDeleteDoc(
+        "catalog",
+        String(deleteTarget.productId || deleteTarget.id),
+      );
+      onRefresh();
+      toast.success("Item deleted.");
+      setDeleteOpen(false);
+      setDeleteTarget(null);
+    } catch (e) {
+      console.error("Delete failed:", e);
+      toast.error("Delete failed. Please try again.");
+    } finally {
+      setDeletingId(null);
+      setDeleteTarget(null);
+    }
   }
 
   const published = items.filter((i) => i.published).length;
@@ -2974,7 +3226,41 @@ function CatalogSection({
           >
             {migrating ? "⏳ Migrating..." : "🔧 Fix Migration Types"}
           </button>
+          <button
+            type="button"
+            data-ocid="admin.catalog.print_stock_report"
+            onClick={() => {
+              const style = document.createElement("style");
+              style.id = "catalog-print-override";
+              style.textContent = `
+                @media print {
+                  body > *:not(#catalog-stock-print-area) { display: none !important; }
+                  #catalog-stock-print-area { display: block !important; position: fixed !important; inset: 0 !important; background: white !important; padding: 20mm !important; font-family: Arial, sans-serif !important; z-index: 99999 !important; }
+                }
+              `;
+              document.head.appendChild(style);
+              window.print();
+              setTimeout(() => style.remove(), 2000);
+            }}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 10,
+              border: "1px solid rgba(99,102,241,0.4)",
+              background: "rgba(99,102,241,0.12)",
+              color: "#818cf8",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              whiteSpace: "nowrap",
+            }}
+          >
+            🖨️ Print Stock Report
+          </button>
         </div>
+        <CsvBulkUploader onImportComplete={onRefresh} />
       </div>
 
       {/* Tab Toggle */}
@@ -3132,7 +3418,12 @@ function CatalogSection({
                     <td style={{ padding: "12px 16px" }}>
                       {item.mediaFiles.length > 0 ? (
                         <img
-                          src={item.mediaFiles[0].getDirectURL()}
+                          src={
+                            typeof item.mediaFiles[0] === "string"
+                              ? item.mediaFiles[0]
+                              : (item.mediaFiles[0] as any).getDirectURL?.() ||
+                                ""
+                          }
                           alt={item.name}
                           style={{
                             width: 48,
@@ -3483,6 +3774,178 @@ function CatalogSection({
         onConfirm={handleDelete}
         itemName={deleteTarget?.name ?? ""}
       />
+      {/* Hidden A4 Stock Report — shown only on print */}
+      <div id="catalog-stock-print-area" style={{ display: "none" }}>
+        <div
+          style={{
+            borderBottom: "3px double #1e40af",
+            paddingBottom: 12,
+            marginBottom: 16,
+          }}
+        >
+          <h1
+            style={{
+              fontSize: 22,
+              fontWeight: 900,
+              color: "#1e40af",
+              margin: 0,
+            }}
+          >
+            ClikMate Smart Online Service Center
+          </h1>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#555" }}>
+            Shop No. 12, Awanti Vihar, Raipur (C.G.) | Tel: +91 9508911400
+          </p>
+          <hr style={{ margin: "10px 0", borderColor: "#ccc" }} />
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <strong style={{ fontSize: 14, color: "#333" }}>
+              Stock Report — Catalog Inventory
+            </strong>
+            <span style={{ fontSize: 12, color: "#555" }}>
+              Printed:{" "}
+              {new Date().toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+          </div>
+        </div>
+        <table
+          className="a4-print-table"
+          style={{ width: "100%", borderCollapse: "collapse", marginTop: 15 }}
+        >
+          <thead>
+            <tr>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Item Name
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Type
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Category
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Stock
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Sale Rate
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={String(item.id ?? i)}>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {item.name}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {item.itemType || "product"}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {item.category || "-"}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {item.itemType === "service" ? "N/A" : (item.quantity ?? 0)}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  ₹{Number(item.saleRate ?? 0).toLocaleString("en-IN")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p
+          style={{
+            marginTop: 20,
+            fontSize: 11,
+            color: "#777",
+            borderTop: "1px solid #ccc",
+            paddingTop: 8,
+          }}
+        >
+          Total Items: {items.length} &nbsp;|&nbsp; Products:{" "}
+          {items.filter((i) => i.itemType !== "service").length} &nbsp;|&nbsp;
+          Services: {items.filter((i) => i.itemType === "service").length}
+        </p>
+      </div>
     </div>
   );
 }
@@ -4012,7 +4475,6 @@ function LiveOperationalDashboard() {
   >(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [todayExpenses, setTodayExpenses] = useState<ExpenseEntry[]>([]);
   const [todayIncomes, setTodayIncomes] = useState<ManualIncomeEntry[]>([]);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [quickExpenseForm, setQuickExpenseForm] = useState({
@@ -4021,23 +4483,30 @@ function LiveOperationalDashboard() {
     note: "",
     paymentMode: "Cash",
   });
+  const [dateRange, setDateRange] = useState<
+    "today" | "week" | "month" | "all"
+  >("today");
+  const [allExpenses, setAllExpenses] = useState<any[]>([]);
+  const [catalogItems, setCatalogItems] = useState<any[]>([]);
 
   const loadOrders = async () => {
     try {
       setLoading(true);
-      const todayStr = new Date().toISOString().split("T")[0];
-      const [all, exp, inc] = await Promise.all([
+      const [all, allExp, inc, cat] = await Promise.all([
         fsGetCollection<any>("orders"),
-        Promise.resolve(storageGet<ExpenseEntry[]>(STORAGE_KEYS.expenses, [])),
+        fsGetCollection<any>("expenses"),
         Promise.resolve(
           storageGet<ManualIncomeEntry[]>(STORAGE_KEYS.manualIncomes, []),
         ),
+        fsGetCollection<any>("catalog"),
       ]);
       const sorted = [...all].sort(
         (a, b) => Number(b.createdAt) - Number(a.createdAt),
       );
+      const todayStr = new Date().toISOString().split("T")[0];
       setOrders(sorted);
-      setTodayExpenses(exp.filter((e: ExpenseEntry) => e.date === todayStr));
+      setAllExpenses(allExp);
+      setCatalogItems(cat);
       setTodayIncomes(
         inc.filter((i: ManualIncomeEntry) => i.date === todayStr),
       );
@@ -4067,9 +4536,9 @@ function LiveOperationalDashboard() {
         @page { size: A4; margin: 15mm; }
         body { background: white !important; color: black !important; }
         #print-report-header { display: block !important; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; }
-        th, td { border: 1px solid #333; padding: 6px 8px; text-align: left; color: black !important; background: white !important; }
-        th { background: #f0f0f0 !important; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 12pt; }
+        th, td { border: 1px solid #000; padding: 8px 10px; text-align: left; color: black !important; background: white !important; }
+        th { background: #f2f2f2 !important; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         * { box-shadow: none !important; border-radius: 0 !important; }
       }
     `;
@@ -4103,16 +4572,68 @@ function LiveOperationalDashboard() {
     .filter((i) => i.paymentMode !== "Cash")
     .reduce((s, i) => s + Number(i.amount), 0);
 
-  const todayExpenseCash = todayExpenses
-    .filter((e) => e.paymentMode === "Cash")
-    .reduce((s, e) => s + Number(e.amount), 0);
-  const todayExpenseUpi = todayExpenses
-    .filter((e) => e.paymentMode !== "Cash")
-    .reduce((s, e) => s + Number(e.amount), 0);
-  const todayExpenseTotal = todayExpenses.reduce(
+  const todayExpenseCash: number = 0;
+  const todayExpenseUpi: number = 0;
+  const todayExpenseTotal: number = 0;
+
+  // ── Period-based calculations (dateRange controlled) ──────────────────────
+  function getDateBounds(range: "today" | "week" | "month" | "all") {
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+    if (range === "today") return { start: todayStr, end: todayStr };
+    if (range === "week") {
+      const start = new Date(now);
+      start.setDate(now.getDate() - 6);
+      return { start: start.toISOString().split("T")[0], end: todayStr };
+    }
+    if (range === "month") {
+      const start = new Date(now);
+      start.setDate(1);
+      return { start: start.toISOString().split("T")[0], end: todayStr };
+    }
+    return { start: "1970-01-01", end: "9999-12-31" };
+  }
+
+  const { start: periodStart, end: periodEnd } = getDateBounds(dateRange);
+
+  const filteredOrders = orders.filter((o) => {
+    const d = new Date(Number(o.createdAt) / 1_000_000 || Number(o.createdAt));
+    const ds = d.toISOString().split("T")[0];
+    return ds >= periodStart && ds <= periodEnd;
+  });
+
+  const periodRevenue = filteredOrders.reduce(
+    (s, o) => s + Number(o.totalAmount),
+    0,
+  );
+
+  const catalogMap = new Map(
+    catalogItems.map((c: any) => [String(c.name ?? "").toLowerCase(), c]),
+  );
+  const periodCOGS = filteredOrders.reduce((sum, order) => {
+    if (!order.items) return sum;
+    return (
+      sum +
+      (order.items as any[]).reduce((s: number, item: any) => {
+        const catalogItem = catalogMap.get(
+          String(item.itemName || item.name || "").toLowerCase(),
+        );
+        const purchaseRate = Number(catalogItem?.purchaseRate ?? 0);
+        return (
+          s + purchaseRate * (Number(item.qty) || Number(item.quantity) || 0)
+        );
+      }, 0)
+    );
+  }, 0);
+
+  const filteredExpenses = allExpenses.filter(
+    (e) => e.date >= periodStart && e.date <= periodEnd,
+  );
+  const periodExpenseTotal = filteredExpenses.reduce(
     (s, e) => s + Number(e.amount),
     0,
   );
+  const netProfit = periodRevenue - periodCOGS - periodExpenseTotal;
 
   const baseFilteredOrders = (() => {
     if (activeFilter === "pending") return pendingOrders;
@@ -4121,7 +4642,7 @@ function LiveOperationalDashboard() {
     return orders;
   })();
 
-  const filteredOrders = searchQuery
+  const searchFilteredOrders = searchQuery
     ? baseFilteredOrders.filter((o) => {
         const q = searchQuery.trim().toLowerCase();
         if (/^\d{10}$/.test(q)) {
@@ -4241,6 +4762,58 @@ function LiveOperationalDashboard() {
 
   return (
     <div style={{ padding: 24 }}>
+      {/* Global Date-Range Selector */}
+      <div
+        className="no-print"
+        style={{
+          display: "flex",
+          gap: 8,
+          marginBottom: 16,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <span
+          style={{
+            color: "rgba(255,255,255,0.5)",
+            fontSize: 13,
+            fontWeight: 700,
+            marginRight: 4,
+          }}
+        >
+          📅 Period:
+        </span>
+        {(["today", "week", "month", "all"] as const).map((r) => (
+          <button
+            key={r}
+            type="button"
+            data-ocid={`dashboard.period.${r}.tab`}
+            onClick={() => setDateRange(r)}
+            style={{
+              padding: "6px 16px",
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              background:
+                dateRange === r
+                  ? "linear-gradient(135deg,#06b6d4,#7c3aed)"
+                  : "rgba(255,255,255,0.08)",
+              color: dateRange === r ? "white" : "rgba(255,255,255,0.6)",
+              transition: "all 0.2s",
+            }}
+          >
+            {r === "today"
+              ? "Today"
+              : r === "week"
+                ? "This Week"
+                : r === "month"
+                  ? "This Month"
+                  : "All Time"}
+          </button>
+        ))}
+      </div>
       {/* Toolbar */}
       <div
         style={{
@@ -4659,7 +5232,166 @@ function LiveOperationalDashboard() {
                 fontWeight: 500,
               }}
             >
-              {todayExpenses.length} entries today
+              {filteredExpenses.length} entries this period
+            </div>
+          </div>
+        </div>
+
+        {/* Period Metrics: Revenue, COGS, Expenses, Net Profit */}
+        <div
+          className="no-print"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: 16,
+            marginBottom: 20,
+          }}
+        >
+          {/* Period Revenue */}
+          <div
+            style={{
+              background: "rgba(124,58,237,0.15)",
+              border: "1px solid rgba(124,58,237,0.35)",
+              borderRadius: 14,
+              padding: "18px 20px",
+            }}
+          >
+            <div
+              style={{
+                color: "rgba(255,255,255,0.5)",
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                marginBottom: 6,
+              }}
+            >
+              {dateRange === "today"
+                ? "Today"
+                : dateRange === "week"
+                  ? "Week"
+                  : dateRange === "month"
+                    ? "Month"
+                    : "All Time"}
+              's Sales
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#c084fc" }}>
+              ₹{periodRevenue.toLocaleString("en-IN")}
+            </div>
+          </div>
+
+          {/* COGS */}
+          <div
+            style={{
+              background: "rgba(245,158,11,0.12)",
+              border: "1px solid rgba(245,158,11,0.3)",
+              borderRadius: 14,
+              padding: "18px 20px",
+            }}
+          >
+            <div
+              style={{
+                color: "rgba(255,255,255,0.5)",
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                marginBottom: 6,
+              }}
+            >
+              Cost of Goods Sold
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#fcd34d" }}>
+              ₹{periodCOGS.toLocaleString("en-IN")}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: "rgba(255,255,255,0.3)",
+                marginTop: 4,
+              }}
+            >
+              purchaseRate × qty sold
+            </div>
+          </div>
+
+          {/* Period Expenses */}
+          <div
+            style={{
+              background: "rgba(239,68,68,0.12)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: 14,
+              padding: "18px 20px",
+            }}
+          >
+            <div
+              style={{
+                color: "rgba(255,255,255,0.5)",
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                marginBottom: 6,
+              }}
+            >
+              Total Expenses
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#fca5a5" }}>
+              ₹{periodExpenseTotal.toLocaleString("en-IN")}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: "rgba(255,255,255,0.3)",
+                marginTop: 4,
+              }}
+            >
+              {filteredExpenses.length} entries
+            </div>
+          </div>
+
+          {/* Net Profit */}
+          <div
+            style={{
+              background:
+                netProfit >= 0
+                  ? "rgba(16,185,129,0.15)"
+                  : "rgba(239,68,68,0.15)",
+              border: `1px solid ${netProfit >= 0 ? "rgba(16,185,129,0.35)" : "rgba(239,68,68,0.35)"}`,
+              borderRadius: 14,
+              padding: "18px 20px",
+            }}
+          >
+            <div
+              style={{
+                color: "rgba(255,255,255,0.5)",
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                marginBottom: 6,
+              }}
+            >
+              Net Profit
+            </div>
+            <div
+              style={{
+                fontSize: 28,
+                fontWeight: 800,
+                color: netProfit >= 0 ? "#6ee7b7" : "#fca5a5",
+              }}
+            >
+              {netProfit < 0 ? "-" : ""}₹
+              {Math.abs(netProfit).toLocaleString("en-IN")}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: "rgba(255,255,255,0.3)",
+                marginTop: 4,
+              }}
+            >
+              Sales - COGS - Expenses
             </div>
           </div>
         </div>
@@ -4699,9 +5431,11 @@ function LiveOperationalDashboard() {
             "dashboard.pos_button",
           )}
           {pillBtn(
-            "+ Add Manual Expense",
+            "📒 Expense Book",
             "linear-gradient(135deg, #ef4444, #dc2626)",
-            () => setShowExpenseModal(true),
+            () => {
+              window.location.hash = "#/expense-tracker";
+            },
             "dashboard.expense_button",
           )}
           {pillBtn(
@@ -4937,7 +5671,7 @@ function LiveOperationalDashboard() {
                   fontSize: 13,
                 }}
               >
-                ({filteredOrders.length})
+                ({searchFilteredOrders.length})
               </span>
             </h3>
             <button
@@ -4968,7 +5702,7 @@ function LiveOperationalDashboard() {
               >
                 Loading orders...
               </div>
-            ) : filteredOrders.length === 0 ? (
+            ) : searchFilteredOrders.length === 0 ? (
               <div
                 data-ocid="dashboard.empty_state"
                 style={{
@@ -5012,7 +5746,7 @@ function LiveOperationalDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((order, idx) => {
+                  {searchFilteredOrders.map((order, idx) => {
                     const idStr = String(order.id);
                     const shortId = idStr.length > 6 ? idStr.slice(-6) : idStr;
                     const serviceDetail =
@@ -6359,6 +7093,7 @@ function AttendanceReportSection() {
         />
       </div>
       <div
+        className="ui-only"
         style={{
           background: "rgba(255,255,255,0.03)",
           border: "1px solid rgba(255,255,255,0.08)",
@@ -6497,6 +7232,235 @@ function AttendanceReportSection() {
             )}
           </tbody>
         </table>
+      </div>
+      {/* Print-only A4 Attendance Table */}
+      <div className="print-only-table" style={{ display: "none" }}>
+        <div
+          style={{
+            borderBottom: "3px double #1e40af",
+            paddingBottom: 12,
+            marginBottom: 16,
+          }}
+        >
+          <h1
+            style={{
+              fontSize: 22,
+              fontWeight: 900,
+              color: "#1e40af",
+              margin: 0,
+            }}
+          >
+            ClikMate Smart Online Service Center
+          </h1>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#555" }}>
+            Shop No. 12, Awanti Vihar, Raipur (C.G.) | Tel: +91 9508911400
+          </p>
+          <hr style={{ margin: "10px 0", borderColor: "#ccc" }} />
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <strong style={{ fontSize: 14, color: "#333" }}>
+              Attendance Report
+            </strong>
+            <span style={{ fontSize: 12, color: "#555" }}>
+              Printed:{" "}
+              {new Date().toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+          </div>
+        </div>
+        <table
+          className="a4-print-table"
+          style={{ width: "100%", borderCollapse: "collapse", marginTop: 15 }}
+        >
+          <thead>
+            <tr>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Date
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Staff Name
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Role
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Status
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Clock-In
+              </th>
+              <th
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  background: "#f2f2f2",
+                  fontWeight: "bold",
+                  fontSize: "12pt",
+                }}
+              >
+                Clock-Out
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {log.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    textAlign: "center",
+                    color: "#555",
+                    fontSize: "12pt",
+                  }}
+                >
+                  No attendance records found.
+                </td>
+              </tr>
+            ) : (
+              log
+                .slice()
+                .reverse()
+                .map((entry, i) => {
+                  const clockInStr = new Date(
+                    entry.timestamp,
+                  ).toLocaleTimeString("en-IN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true,
+                  });
+                  const clockOutStr = entry.clockOutTime
+                    ? new Date(entry.clockOutTime).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: true,
+                      })
+                    : "-";
+                  const status = entry.clockOutTime
+                    ? "Clocked Out"
+                    : "Active/Working";
+                  return (
+                    <tr key={`print-att-${entry.timestamp}-${i}`}>
+                      <td
+                        style={{
+                          border: "1px solid #000",
+                          padding: "8px 10px",
+                          fontSize: "12pt",
+                          color: "#000",
+                        }}
+                      >
+                        {entry.date}
+                      </td>
+                      <td
+                        style={{
+                          border: "1px solid #000",
+                          padding: "8px 10px",
+                          fontSize: "12pt",
+                          color: "#000",
+                        }}
+                      >
+                        {entry.staffName}
+                      </td>
+                      <td
+                        style={{
+                          border: "1px solid #000",
+                          padding: "8px 10px",
+                          fontSize: "12pt",
+                          color: "#000",
+                        }}
+                      >
+                        {(entry as any).role || "Staff"}
+                      </td>
+                      <td
+                        style={{
+                          border: "1px solid #000",
+                          padding: "8px 10px",
+                          fontSize: "12pt",
+                          color: "#000",
+                        }}
+                      >
+                        {status}
+                      </td>
+                      <td
+                        style={{
+                          border: "1px solid #000",
+                          padding: "8px 10px",
+                          fontSize: "12pt",
+                          color: "#000",
+                        }}
+                      >
+                        {clockInStr}
+                      </td>
+                      <td
+                        style={{
+                          border: "1px solid #000",
+                          padding: "8px 10px",
+                          fontSize: "12pt",
+                          color: "#000",
+                        }}
+                      >
+                        {clockOutStr}
+                      </td>
+                    </tr>
+                  );
+                })
+            )}
+          </tbody>
+        </table>
+        <p
+          style={{
+            marginTop: 16,
+            fontSize: 11,
+            color: "#777",
+            borderTop: "1px solid #ccc",
+            paddingTop: 8,
+          }}
+        >
+          Total Records: {log.length}
+        </p>
       </div>
     </div>
   );
@@ -7332,16 +8296,22 @@ function SettingsSection() {
   const [ipWhitelist, setIpWhitelist] = useState(false);
   const [waBotEnabled, setWaBotEnabled] = useState(false);
   const [waRateTemplate, setWaRateTemplate] = useState("");
+  const [gstEnabled, setGstEnabled] = useState(false);
+  const [shopGstNumber, setShopGstNumber] = useState("");
 
   useEffect(() => {
     fsGetSettings<{
       whatsappBotEnabled: boolean;
       whatsappRateTemplate: string;
+      gstEnabled?: boolean;
+      shopGstNumber?: string;
     }>("appConfig")
       .then((cfg) => {
         if (cfg) {
           setWaBotEnabled(cfg.whatsappBotEnabled ?? false);
           setWaRateTemplate(cfg.whatsappRateTemplate ?? "");
+          setGstEnabled(cfg.gstEnabled ?? false);
+          setShopGstNumber(cfg.shopGstNumber ?? "");
         }
       })
       .catch(console.error);
@@ -7995,8 +8965,203 @@ function SettingsSection() {
         </div>
       </div>
 
+      {/* GST & Tax Settings Card */}
+      <div style={{ ...S.card, marginBottom: 24 }}>
+        <div
+          style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: "rgba(16,185,129,0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 18,
+            }}
+          >
+            🧾
+          </div>
+          <div>
+            <h3
+              style={{
+                color: "white",
+                fontWeight: 700,
+                fontSize: 15,
+                margin: 0,
+              }}
+            >
+              GST &amp; Tax Settings
+            </h3>
+            <p
+              style={{
+                color: "rgba(255,255,255,0.4)",
+                fontSize: 12,
+                margin: 0,
+              }}
+            >
+              Configure GST for B2B invoicing and tax compliance
+            </p>
+          </div>
+        </div>
+        <div
+          style={{
+            padding: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          {/* Enable GST toggle */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  color: "white",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  margin: 0,
+                }}
+              >
+                Enable GST Features
+              </p>
+              <p
+                style={{
+                  color: "rgba(255,255,255,0.4)",
+                  fontSize: 11,
+                  margin: "2px 0 0",
+                }}
+              >
+                Show GST fields in Catalog, POS checkout, and invoices
+              </p>
+            </div>
+            <div
+              role="switch"
+              aria-checked={gstEnabled}
+              tabIndex={0}
+              data-ocid="admin.settings.gst_toggle"
+              onClick={() => setGstEnabled(!gstEnabled)}
+              onKeyDown={(e) => {
+                if (e.key === " " || e.key === "Enter")
+                  setGstEnabled(!gstEnabled);
+              }}
+              style={{
+                width: 44,
+                height: 24,
+                borderRadius: 12,
+                cursor: "pointer",
+                background: gstEnabled
+                  ? "rgba(16,185,129,0.3)"
+                  : "rgba(255,255,255,0.1)",
+                border: `1px solid ${gstEnabled ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.15)"}`,
+                position: "relative",
+                transition: "background 0.2s",
+                flexShrink: 0,
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: gstEnabled ? 22 : 2,
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  background: gstEnabled ? "#10b981" : "rgba(255,255,255,0.5)",
+                  transition: "left 0.2s",
+                }}
+              />
+            </div>
+          </div>
+          {/* Shop GSTIN */}
+          <div>
+            <label
+              htmlFor="shop-gstin-input"
+              style={{
+                display: "block",
+                color: "rgba(255,255,255,0.6)",
+                fontSize: 12,
+                fontWeight: 600,
+                marginBottom: 6,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              Shop GSTIN
+            </label>
+            <input
+              id="shop-gstin-input"
+              data-ocid="admin.settings.shop_gstin.input"
+              value={shopGstNumber}
+              onChange={(e) => setShopGstNumber(e.target.value.toUpperCase())}
+              placeholder="22AAAAA0000A1Z5"
+              maxLength={15}
+              style={{ ...S.input, width: "100%" }}
+            />
+            <p
+              style={{
+                color: "rgba(255,255,255,0.3)",
+                fontSize: 11,
+                marginTop: 4,
+              }}
+            >
+              First 2 digits = State Code (used for CGST/SGST vs IGST detection)
+            </p>
+          </div>
+          <button
+            type="button"
+            data-ocid="admin.settings.save_gst.button"
+            onClick={async () => {
+              try {
+                await fsSetSettings("appConfig", {
+                  whatsappBotEnabled: waBotEnabled,
+                  whatsappRateTemplate: waRateTemplate,
+                  gstEnabled,
+                  shopGstNumber,
+                });
+                localStorage.setItem(
+                  "clikmate_gst_settings",
+                  JSON.stringify({ enabled: gstEnabled, shopGstNumber }),
+                );
+                toast.success("GST settings saved!");
+              } catch {
+                toast.error("Failed to save GST settings.");
+              }
+            }}
+            style={{
+              padding: "10px 24px",
+              borderRadius: 10,
+              border: "none",
+              background: "#059669",
+              color: "white",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 14,
+              alignSelf: "flex-start",
+            }}
+          >
+            Save GST Settings
+          </button>
+        </div>
+      </div>
+
       <BrandSettingsCard />
       <SyncToCloudCard />
+      <FactoryResetCard />
     </div>
   );
 }
@@ -8196,6 +9361,198 @@ function SyncToCloudCard() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Factory Reset Card ────────────────────────────────────────────────────────
+function FactoryResetCard() {
+  const [showConfirm, setShowConfirm] = React.useState(false);
+  const [wiping, setWiping] = React.useState(false);
+
+  const handleFactoryReset = async () => {
+    const WIPE_COLLECTIONS = [
+      "catalog",
+      "categories",
+      "orders",
+      "khata",
+      "attendance",
+    ];
+    try {
+      setWiping(true);
+      for (const collName of WIPE_COLLECTIONS) {
+        const snap = await getDocs(collection(db, collName));
+        const docs = snap.docs;
+        for (let i = 0; i < docs.length; i += 400) {
+          const chunk = docs.slice(i, i + 400);
+          const batch = writeBatch(db);
+          for (const d of chunk) {
+            batch.delete(d.ref);
+          }
+          await batch.commit();
+        }
+      }
+      toast.success("✓ All test data wiped. App is ready for live operations.");
+      setShowConfirm(false);
+    } catch (e) {
+      console.error("Factory reset failed:", e);
+      toast.error(`Wipe failed: ${String(e)}`);
+    } finally {
+      setWiping(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        ...S.card,
+        marginTop: 24,
+        border: "1px solid rgba(239,68,68,0.4)",
+        background: "rgba(30,10,10,0.7)",
+      }}
+    >
+      <div
+        style={{
+          padding: "16px 20px",
+          borderBottom: "1px solid rgba(239,68,68,0.2)",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: "rgba(239,68,68,0.2)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 18,
+          }}
+        >
+          🗑
+        </div>
+        <div>
+          <h3
+            style={{
+              color: "#fca5a5",
+              fontSize: 15,
+              fontWeight: 600,
+              margin: 0,
+            }}
+          >
+            ⚠ DANGER ZONE — Factory Reset
+          </h3>
+          <p
+            style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, margin: 0 }}
+          >
+            Permanently wipe all test/dummy data before going live
+          </p>
+        </div>
+      </div>
+      <div style={{ padding: 20 }}>
+        <p
+          style={{
+            color: "rgba(255,180,180,0.85)",
+            fontSize: 13,
+            marginBottom: 16,
+            lineHeight: 1.6,
+          }}
+        >
+          This will permanently delete <strong>ALL documents</strong> from the
+          following Firestore collections:{" "}
+          <strong>catalog, categories, orders, khata, and attendance</strong>.
+          <br />
+          <span style={{ color: "#fca5a5" }}>
+            Your login credentials (<code>users</code>) and app settings will
+            NOT be affected.
+          </span>
+        </p>
+
+        {!showConfirm ? (
+          <button
+            type="button"
+            data-ocid="settings.delete_button"
+            onClick={() => setShowConfirm(true)}
+            style={{
+              background: "rgba(239,68,68,0.15)",
+              border: "1px solid rgba(239,68,68,0.5)",
+              color: "#fca5a5",
+              borderRadius: 8,
+              padding: "10px 20px",
+              fontSize: 14,
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            🗑 Wipe All Test Data
+          </button>
+        ) : (
+          <div
+            style={{
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: 10,
+              padding: 16,
+            }}
+          >
+            <p
+              style={{
+                color: "#f87171",
+                fontWeight: 700,
+                marginBottom: 12,
+                fontSize: 14,
+              }}
+            >
+              ⚠ This action CANNOT be undone. Are you absolutely sure?
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                data-ocid="settings.cancel_button"
+                onClick={() => setShowConfirm(false)}
+                disabled={wiping}
+                style={{
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  color: "white",
+                  borderRadius: 8,
+                  padding: "10px 18px",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-ocid="settings.confirm_button"
+                onClick={handleFactoryReset}
+                disabled={wiping}
+                style={{
+                  background: wiping
+                    ? "rgba(239,68,68,0.3)"
+                    : "rgba(239,68,68,0.8)",
+                  border: "1px solid #ef4444",
+                  color: "white",
+                  borderRadius: 8,
+                  padding: "10px 18px",
+                  fontSize: 13,
+                  cursor: wiping ? "not-allowed" : "pointer",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {wiping ? "⏳ Wiping..." : "Yes, Wipe Everything"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -15791,6 +17148,16 @@ export default function AdminDashboard() {
               ocid="admin.khata_settlement.shortcut"
               onClick={() => {
                 window.location.hash = "#/admin/khata-settlement";
+                setSidebarOpen(false);
+              }}
+            />
+            <NavItem
+              icon={Receipt}
+              label="Expense Book"
+              active={false}
+              ocid="admin.expense_book.shortcut"
+              onClick={() => {
+                window.location.hash = "#/expense-tracker";
                 setSidebarOpen(false);
               }}
             />

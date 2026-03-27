@@ -1402,15 +1402,18 @@ export default function KhataSettlementPage() {
               }
               .ledger-print-table th,
               .ledger-print-table td {
-                border: 1px solid #333;
-                padding: 6px 8px;
-                font-size: 10pt;
-                color: black !important;
+                border: 1px solid #000;
+                padding: 8px 10px;
+                text-align: left;
+                font-size: 12pt;
+                color: #000 !important;
+                background: white !important;
               }
               .ledger-print-table th {
-                background: #f0f0f0 !important;
+                background-color: #f2f2f2 !important;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
+                font-weight: bold;
               }
             }
             @media screen {

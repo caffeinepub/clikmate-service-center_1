@@ -71,6 +71,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import BulkDashboard from "./pages/BulkDashboard";
 import BulkLoginPage from "./pages/BulkLoginPage";
 import CheckoutPage from "./pages/CheckoutPage";
+import ExpenseTrackerPage from "./pages/ExpenseTrackerPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import KhataSettlementPage from "./pages/KhataSettlementPage";
 import OrderSuccessPage from "./pages/OrderSuccessPage";
@@ -960,7 +961,11 @@ function RetailSection() {
               >
                 {p.mediaFiles.length > 0 ? (
                   <img
-                    src={p.mediaFiles[0].getDirectURL()}
+                    src={
+                      typeof p.mediaFiles[0] === "string"
+                        ? p.mediaFiles[0]
+                        : (p.mediaFiles[0] as any).getDirectURL?.() || ""
+                    }
                     alt={p.name}
                     className="w-full h-36 object-cover rounded-xl mb-4"
                   />
@@ -1931,6 +1936,7 @@ export default function App() {
           <Route path="/support" element={<SupportPage />} />
           <Route path="/clock-in" element={<StaffClockInPage />} />
           <Route path="/staff-dashboard" element={<StaffDashboard />} />
+          <Route path="/expense-tracker" element={<ExpenseTrackerPage />} />
           <Route
             path="/admin/khata-settlement"
             element={<KhataSettlementPage />}

@@ -27,6 +27,7 @@ export const FS_COLLECTIONS = {
   users: "users",
   settings: "settings",
   posSales: "orders",
+  expenses: "expenses",
 } as const;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

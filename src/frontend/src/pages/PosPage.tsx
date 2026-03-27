@@ -86,6 +86,14 @@ function parseRate(price: string): number {
   return match ? Number.parseFloat(match[0]) : 0;
 }
 
+function getGstSettings(): { enabled: boolean; shopGstNumber: string } {
+  try {
+    const raw = localStorage.getItem("clikmate_gst_settings");
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { enabled: false, shopGstNumber: "" };
+}
+
 // ─── Main POS Component ───────────────────────────────────────────────────────
 export default function PosPage() {
   const navigate = useNavigate();
@@ -99,6 +107,11 @@ export default function PosPage() {
     });
     return () => unsub();
   }, []);
+
+  // Expose catalog to window for GST tax line lookup in CheckoutModal
+  useEffect(() => {
+    (window as any).__clikmate_catalog = catalogItems;
+  }, [catalogItems]);
 
   // -- Barcode Scanner State --
   const [scannerActive, setScannerActive] = useState(true);
@@ -118,20 +131,27 @@ export default function PosPage() {
       if (e.key === "Enter") {
         const buf = barcodeBuffer.current.trim();
         barcodeBuffer.current = "";
-        if (buf.length >= 3) {
+        // Enforce minimum barcode length of 4 characters
+        if (buf.length >= 4) {
           const found = catalogItems.find(
             (item: CatalogItem) =>
+              // Match barcode field first (primary)
+              ((item as any).barcode &&
+                (item as any).barcode.trim() !== "" &&
+                (item as any).barcode.trim().toUpperCase() ===
+                  buf.toUpperCase()) ||
+              // Then match Product ID
               (item.productId &&
                 item.productId.toUpperCase() === buf.toUpperCase()) ||
-              String(item.id) === buf ||
-              item.name.toLowerCase().includes(buf.toLowerCase()),
+              // Then match raw id
+              String(item.id) === buf,
           );
           if (found) {
             const unitPrice = parseRate(found.price);
             window.dispatchEvent(
               new CustomEvent("pos:addToCart", {
                 detail: {
-                  id: String(found.id),
+                  id: `${found.id}-${Date.now()}`,
                   name: found.name,
                   qty: 1,
                   unitPrice,
@@ -139,15 +159,20 @@ export default function PosPage() {
                 },
               }),
             );
-            toast.success(`Barcode: "${found.name}" added!`);
+            toast.success(`✓ Scanned: ${found.name}`);
           } else {
-            toast.error(`Barcode "${buf}" not found in catalog`);
+            // Option C: error toast + focus search + paste scanned string
+            toast.error(`Item not found — barcode: ${buf}`);
+            window.dispatchEvent(
+              new CustomEvent("pos:focusSearch", { detail: { query: buf } }),
+            );
           }
         }
         return;
       }
       if (e.key.length === 1) {
-        if (timeDiff < 80 || barcodeBuffer.current.length === 0) {
+        // 50ms threshold between keystrokes to detect scanner vs manual typing
+        if (timeDiff < 50 || barcodeBuffer.current.length === 0) {
           barcodeBuffer.current += e.key;
         } else {
           barcodeBuffer.current = e.key;
@@ -398,36 +423,48 @@ function CatalogPanel({
   rightTab: "billing" | "accounts";
 }) {
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<"services" | "products">("services");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [rowQty, setRowQty] = useState<Record<string, number>>({});
+
+  // Listen for barcode miss event to focus search with scanned string
+  useEffect(() => {
+    function handleFocusSearch(e: Event) {
+      const { query } = (e as CustomEvent).detail as { query: string };
+      setSearch(query);
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }, 50);
+    }
+    window.addEventListener("pos:focusSearch", handleFocusSearch);
+    return () =>
+      window.removeEventListener("pos:focusSearch", handleFocusSearch);
+  }, []);
   const [modalItem, setModalItem] = useState<CatalogItem | null>(null);
   const [modalType, setModalType] = useState<
     "product" | "service" | "pdf" | null
   >(null);
   // Cart state lives here so both panels can share via context — using a simple
   // window event bus for cross-component communication
-  const SERVICE_CATS = [
-    "Printing & Document",
-    "CSC & Govt Forms",
-    "Typing",
-    "Misc",
-  ];
 
   const displayed = items
     .filter((i) => {
-      const isService = SERVICE_CATS.includes(i.category);
+      const isService = i.itemType === "service";
       return tab === "services" ? isService : !isService;
     })
     .filter(
       (i) =>
         i.name.toLowerCase().includes(search.toLowerCase()) ||
-        i.category.toLowerCase().includes(search.toLowerCase()),
+        i.category.toLowerCase().includes(search.toLowerCase()) ||
+        (i as any).barcode?.toLowerCase().includes(search.toLowerCase()) ||
+        i.productId?.toLowerCase().includes(search.toLowerCase()),
     );
 
   function handleItemClick(item: CatalogItem) {
     setModalItem(item);
-    const isService = SERVICE_CATS.includes(item.category);
+    const isService = item.itemType === "service";
     if (!isService) {
       setModalType("product");
     } else if (item.requiresPdfCalc) {
@@ -473,10 +510,11 @@ function CatalogPanel({
             }}
           />
           <input
+            ref={searchInputRef}
             data-ocid="pos.catalog.search_input"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search catalog..."
+            placeholder="Search by name, barcode, or Product ID..."
             style={{
               width: "100%",
               padding: "8px 10px 8px 32px",
@@ -1302,6 +1340,22 @@ function BillingPanel({
     total: number;
     paymentMode: string;
     customerMobile: string;
+    isGstInvoice?: boolean;
+    customerName?: string;
+    customerGstin?: string;
+    cgstAmount?: number;
+    sgstAmount?: number;
+    igstAmount?: number;
+    grandTotal?: number;
+    taxLines?: Array<{
+      name: string;
+      qty: number;
+      rate: number;
+      taxableValue: number;
+      gstPct: number;
+      taxAmount: number;
+      hsnSac: string;
+    }>;
   } | null>(null);
 
   // Listen for add-to-cart events from catalog panel
@@ -1717,6 +1771,22 @@ function CheckoutModal({
     total: number;
     paymentMode: string;
     customerMobile: string;
+    isGstInvoice?: boolean;
+    customerName?: string;
+    customerGstin?: string;
+    cgstAmount?: number;
+    sgstAmount?: number;
+    igstAmount?: number;
+    grandTotal?: number;
+    taxLines?: Array<{
+      name: string;
+      qty: number;
+      rate: number;
+      taxableValue: number;
+      gstPct: number;
+      taxAmount: number;
+      hsnSac: string;
+    }>;
   }) => void;
 }) {
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
@@ -1725,28 +1795,73 @@ function CheckoutModal({
   const [khataCustomer, setKhataCustomer] = useState("");
   const [phone, setPhone] = useState(customerMobile);
   const [saving, setSaving] = useState(false);
+  const [isGstInvoice, setIsGstInvoice] = useState(false);
+  const [b2bCustomerName, setB2bCustomerName] = useState("");
+  const [b2bCustomerGstin, setB2bCustomerGstin] = useState("");
+
+  // GST tax computation
+  const gstSettings = getGstSettings();
+  const isIntraState =
+    b2bCustomerGstin.length >= 2 && gstSettings.shopGstNumber.length >= 2
+      ? b2bCustomerGstin.substring(0, 2) ===
+        gstSettings.shopGstNumber.substring(0, 2)
+      : true;
+  const taxLines = cart.map((c) => {
+    const catalogMatch = ((window as any).__clikmate_catalog || []).find(
+      (ci: any) => ci.name === c.name,
+    );
+    const gstPct = catalogMatch?.gstPercentage || 0;
+    const hsnSac = catalogMatch?.hsnSac || "";
+    const taxAmount = isGstInvoice ? (c.total * gstPct) / 100 : 0;
+    return {
+      name: c.name,
+      qty: c.qty,
+      rate: c.unitPrice,
+      taxableValue: c.total,
+      gstPct,
+      taxAmount,
+      hsnSac,
+    };
+  });
+  const totalTax = taxLines.reduce((s, l) => s + l.taxAmount, 0);
+  const cgstAmount = isIntraState ? totalTax / 2 : 0;
+  const sgstAmount = isIntraState ? totalTax / 2 : 0;
+  const igstAmount = isIntraState ? 0 : totalTax;
+  const grandTotal = subtotal + (isGstInvoice ? totalTax : 0);
 
   async function completeSale() {
     if (paymentMode === "Khata" && !phone) {
       toast.error("Customer mobile is required for Khata.");
       return;
     }
+    if (isGstInvoice && (!b2bCustomerName || !b2bCustomerGstin)) {
+      toast.error("Customer Name and GSTIN are required for B2B GST Invoice.");
+      return;
+    }
     setSaving(true);
     try {
-      const saleId = BigInt(Date.now());
+      const saleId = Date.now();
       const newSale = {
         id: saleId,
         items: cart.map((c) => ({
           itemName: c.name,
-          qty: BigInt(c.qty),
+          qty: c.qty,
           unitPrice: c.unitPrice,
           totalPrice: c.total,
         })),
-        totalAmount: subtotal,
+        totalAmount: isGstInvoice ? grandTotal : subtotal,
         paymentMethod: paymentMode,
         customerPhone: phone,
         staffMobile,
-        createdAt: BigInt(Date.now()),
+        createdAt: Date.now(),
+        isGstInvoice,
+        customerName: isGstInvoice ? b2bCustomerName : "",
+        customerGstin: isGstInvoice ? b2bCustomerGstin : "",
+        cgstAmount: isGstInvoice ? cgstAmount : 0,
+        sgstAmount: isGstInvoice ? sgstAmount : 0,
+        igstAmount: isGstInvoice ? igstAmount : 0,
+        grandTotal: isGstInvoice ? grandTotal : subtotal,
+        taxLines: isGstInvoice ? taxLines : [],
       };
       // Save sale to Firestore
       await fsAddDoc("orders", newSale);
@@ -1776,7 +1891,7 @@ function CheckoutModal({
         const khataList = await fsGetCollection<any>("khata");
         const existing = khataList.find((e: any) => e.phone === phone);
         if (existing) {
-          await fsUpdateDoc("khata", String(existing.id), {
+          await fsUpdateDoc("khata", existing.phone, {
             totalDue: (existing.totalDue || 0) + subtotal,
           });
         } else {
@@ -1794,9 +1909,17 @@ function CheckoutModal({
       onSuccess({
         id: `#SO-${saleId.toString()}`,
         items: cart,
-        total: subtotal,
+        total: isGstInvoice ? grandTotal : subtotal,
         paymentMode,
         customerMobile: phone,
+        isGstInvoice,
+        customerName: isGstInvoice ? b2bCustomerName : "",
+        customerGstin: isGstInvoice ? b2bCustomerGstin : "",
+        cgstAmount: isGstInvoice ? cgstAmount : 0,
+        sgstAmount: isGstInvoice ? sgstAmount : 0,
+        igstAmount: isGstInvoice ? igstAmount : 0,
+        grandTotal: isGstInvoice ? grandTotal : subtotal,
+        taxLines: isGstInvoice ? taxLines : [],
       });
       toast.success("Sale recorded!");
     } catch (err) {
@@ -1856,9 +1979,233 @@ function CheckoutModal({
             Total
           </span>
           <span style={{ color: "#f59e0b", fontSize: 20, fontWeight: 800 }}>
-            {formatRs(subtotal)}
+            {formatRs(isGstInvoice ? grandTotal : subtotal)}
           </span>
         </div>
+
+        {/* GST B2B Section */}
+        {gstSettings.enabled && (
+          <div
+            style={{
+              borderTop: "1px solid rgba(255,255,255,0.08)",
+              paddingTop: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 10,
+              }}
+            >
+              <div>
+                <p
+                  style={{
+                    color: "white",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    margin: 0,
+                  }}
+                >
+                  Generate B2B GST Invoice
+                </p>
+                <p
+                  style={{
+                    color: "rgba(255,255,255,0.4)",
+                    fontSize: 11,
+                    margin: "2px 0 0",
+                  }}
+                >
+                  A4 Tax Invoice with GSTIN details
+                </p>
+              </div>
+              <div
+                role="switch"
+                aria-checked={isGstInvoice}
+                tabIndex={0}
+                data-ocid="pos.gst.invoice_toggle"
+                onClick={() => setIsGstInvoice(!isGstInvoice)}
+                onKeyDown={(e) => {
+                  if (e.key === " " || e.key === "Enter")
+                    setIsGstInvoice(!isGstInvoice);
+                }}
+                style={{
+                  width: 44,
+                  height: 24,
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  background: isGstInvoice
+                    ? "#10b981"
+                    : "rgba(255,255,255,0.15)",
+                  position: "relative",
+                  transition: "background 0.2s",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    left: isGstInvoice ? 22 : 2,
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    background: "white",
+                    transition: "left 0.2s",
+                  }}
+                />
+              </div>
+            </div>
+            {isGstInvoice && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div>
+                  <p style={lblStyle}>Customer Name / Company *</p>
+                  <input
+                    data-ocid="pos.gst.customer_name.input"
+                    type="text"
+                    value={b2bCustomerName}
+                    onChange={(e) => setB2bCustomerName(e.target.value)}
+                    style={posInput}
+                    placeholder="ABC Enterprises Pvt Ltd"
+                  />
+                </div>
+                <div>
+                  <p style={lblStyle}>Customer GSTIN *</p>
+                  <input
+                    data-ocid="pos.gst.customer_gstin.input"
+                    type="text"
+                    value={b2bCustomerGstin}
+                    onChange={(e) =>
+                      setB2bCustomerGstin(e.target.value.toUpperCase())
+                    }
+                    style={posInput}
+                    placeholder="22AAAAA0000A1Z5"
+                    maxLength={15}
+                  />
+                </div>
+                <div
+                  style={{
+                    background: "rgba(16,185,129,0.08)",
+                    border: "1px solid rgba(16,185,129,0.2)",
+                    borderRadius: 8,
+                    padding: 10,
+                  }}
+                >
+                  <p
+                    style={{
+                      color: "rgba(255,255,255,0.5)",
+                      fontSize: 11,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {isIntraState
+                      ? "🏠 Intra-state (CGST + SGST)"
+                      : "✈️ Inter-state (IGST)"}
+                  </p>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: 2,
+                    }}
+                  >
+                    <span
+                      style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}
+                    >
+                      Taxable Value
+                    </span>
+                    <span style={{ color: "white", fontSize: 12 }}>
+                      ₹{subtotal.toFixed(2)}
+                    </span>
+                  </div>
+                  {isIntraState ? (
+                    <>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          marginBottom: 2,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "rgba(255,255,255,0.6)",
+                            fontSize: 12,
+                          }}
+                        >
+                          CGST
+                        </span>
+                        <span style={{ color: "#10b981", fontSize: 12 }}>
+                          +₹{cgstAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          marginBottom: 4,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "rgba(255,255,255,0.6)",
+                            fontSize: 12,
+                          }}
+                        >
+                          SGST
+                        </span>
+                        <span style={{ color: "#10b981", fontSize: 12 }}>
+                          +₹{sgstAmount.toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <span
+                        style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}
+                      >
+                        IGST
+                      </span>
+                      <span style={{ color: "#10b981", fontSize: 12 }}>
+                        +₹{igstAmount.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      borderTop: "1px solid rgba(255,255,255,0.1)",
+                      paddingTop: 4,
+                    }}
+                  >
+                    <span
+                      style={{ color: "white", fontWeight: 700, fontSize: 13 }}
+                    >
+                      Grand Total
+                    </span>
+                    <span
+                      style={{
+                        color: "#f59e0b",
+                        fontWeight: 800,
+                        fontSize: 14,
+                      }}
+                    >
+                      ₹{grandTotal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Payment mode */}
         <div>
@@ -1989,11 +2336,31 @@ function ReceiptModal({
     total: number;
     paymentMode: string;
     customerMobile: string;
+    isGstInvoice?: boolean;
+    customerName?: string;
+    customerGstin?: string;
+    cgstAmount?: number;
+    sgstAmount?: number;
+    igstAmount?: number;
+    grandTotal?: number;
+    taxLines?: Array<{
+      name: string;
+      qty: number;
+      rate: number;
+      taxableValue: number;
+      gstPct: number;
+      taxAmount: number;
+      hsnSac: string;
+    }>;
   };
   onClose: () => void;
 }) {
   const now = new Date();
   const dateStr = now.toLocaleString("en-IN");
+  const gstSettingsR = getGstSettings();
+  const isIntra =
+    (receipt.customerGstin?.substring(0, 2) || "") ===
+    (gstSettingsR.shopGstNumber.substring(0, 2) || "");
 
   return (
     <PosModal onClose={onClose} title="Sale Complete!">
@@ -2014,6 +2381,530 @@ function ReceiptModal({
             {receipt.id}
           </p>
         </div>
+        {/* A4 GST Tax Invoice */}
+        {receipt.isGstInvoice && (
+          <div
+            id="pos-gst-invoice-printable"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 8,
+              padding: 16,
+              fontSize: 12,
+              maxHeight: 280,
+              overflowY: "auto",
+            }}
+          >
+            <div
+              style={{
+                textAlign: "center",
+                marginBottom: 10,
+                borderBottom: "2px solid rgba(255,255,255,0.2)",
+                paddingBottom: 8,
+              }}
+            >
+              <p
+                style={{
+                  color: "#f59e0b",
+                  fontWeight: 900,
+                  fontSize: 16,
+                  margin: 0,
+                }}
+              >
+                TAX INVOICE
+              </p>
+              <p
+                style={{
+                  color: "white",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  margin: "4px 0 0",
+                }}
+              >
+                Smart Online Service Center (ClikMate)
+              </p>
+              <p
+                style={{
+                  color: "rgba(255,255,255,0.5)",
+                  fontSize: 10,
+                  margin: "2px 0 0",
+                }}
+              >
+                Krish PG, Geetanjali Colony, Awanti Vihar, Raipur 492001
+              </p>
+              {gstSettingsR.shopGstNumber && (
+                <p
+                  style={{
+                    color: "rgba(255,255,255,0.6)",
+                    fontSize: 10,
+                    margin: "2px 0 0",
+                  }}
+                >
+                  GSTIN:{" "}
+                  <strong style={{ color: "white" }}>
+                    {gstSettingsR.shopGstNumber}
+                  </strong>
+                </p>
+              )}
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+                marginBottom: 10,
+                fontSize: 11,
+              }}
+            >
+              <div>
+                <p style={{ color: "rgba(255,255,255,0.5)", margin: 0 }}>
+                  Invoice No:{" "}
+                  <span style={{ color: "white" }}>{receipt.id}</span>
+                </p>
+                <p
+                  style={{ color: "rgba(255,255,255,0.5)", margin: "2px 0 0" }}
+                >
+                  Date:{" "}
+                  <span style={{ color: "white" }}>
+                    {now.toLocaleDateString("en-IN")}
+                  </span>
+                </p>
+              </div>
+              <div>
+                <p style={{ color: "rgba(255,255,255,0.5)", margin: 0 }}>
+                  Bill To:{" "}
+                  <span style={{ color: "white" }}>{receipt.customerName}</span>
+                </p>
+                <p
+                  style={{ color: "rgba(255,255,255,0.5)", margin: "2px 0 0" }}
+                >
+                  GSTIN:{" "}
+                  <span style={{ color: "white" }}>
+                    {receipt.customerGstin}
+                  </span>
+                </p>
+              </div>
+            </div>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 10,
+                marginBottom: 8,
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "rgba(255,255,255,0.08)",
+                    borderBottom: "1px solid rgba(255,255,255,0.15)",
+                  }}
+                >
+                  <th
+                    style={{
+                      padding: "4px 6px",
+                      textAlign: "left",
+                      color: "rgba(255,255,255,0.7)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Item
+                  </th>
+                  <th
+                    style={{
+                      padding: "4px 6px",
+                      textAlign: "left",
+                      color: "rgba(255,255,255,0.7)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    HSN/SAC
+                  </th>
+                  <th
+                    style={{
+                      padding: "4px 6px",
+                      textAlign: "right",
+                      color: "rgba(255,255,255,0.7)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Qty
+                  </th>
+                  <th
+                    style={{
+                      padding: "4px 6px",
+                      textAlign: "right",
+                      color: "rgba(255,255,255,0.7)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Rate
+                  </th>
+                  <th
+                    style={{
+                      padding: "4px 6px",
+                      textAlign: "right",
+                      color: "rgba(255,255,255,0.7)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Taxable
+                  </th>
+                  {isIntra ? (
+                    <>
+                      <th
+                        style={{
+                          padding: "4px 6px",
+                          textAlign: "right",
+                          color: "rgba(255,255,255,0.7)",
+                          fontWeight: 700,
+                        }}
+                      >
+                        CGST
+                      </th>
+                      <th
+                        style={{
+                          padding: "4px 6px",
+                          textAlign: "right",
+                          color: "rgba(255,255,255,0.7)",
+                          fontWeight: 700,
+                        }}
+                      >
+                        SGST
+                      </th>
+                    </>
+                  ) : (
+                    <th
+                      style={{
+                        padding: "4px 6px",
+                        textAlign: "right",
+                        color: "rgba(255,255,255,0.7)",
+                        fontWeight: 700,
+                      }}
+                    >
+                      IGST
+                    </th>
+                  )}
+                  <th
+                    style={{
+                      padding: "4px 6px",
+                      textAlign: "right",
+                      color: "rgba(255,255,255,0.7)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(receipt.taxLines || []).map((line, i) => {
+                  const halfTax = line.taxAmount / 2;
+                  return (
+                    <tr
+                      key={`tax-${i}-${line.name}`}
+                      style={{
+                        borderBottom: "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <td style={{ padding: "4px 6px", color: "white" }}>
+                        {line.name}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          color: "rgba(255,255,255,0.5)",
+                        }}
+                      >
+                        {line.hsnSac || "-"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          textAlign: "right",
+                          color: "white",
+                        }}
+                      >
+                        {line.qty}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          textAlign: "right",
+                          color: "white",
+                        }}
+                      >
+                        ₹{line.rate.toFixed(2)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          textAlign: "right",
+                          color: "white",
+                        }}
+                      >
+                        ₹{line.taxableValue.toFixed(2)}
+                      </td>
+                      {isIntra ? (
+                        <>
+                          <td
+                            style={{
+                              padding: "4px 6px",
+                              textAlign: "right",
+                              color: "#10b981",
+                            }}
+                          >
+                            ₹{halfTax.toFixed(2)}
+                            <br />
+                            <span
+                              style={{
+                                fontSize: 9,
+                                color: "rgba(255,255,255,0.3)",
+                              }}
+                            >
+                              {line.gstPct / 2}%
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 6px",
+                              textAlign: "right",
+                              color: "#10b981",
+                            }}
+                          >
+                            ₹{halfTax.toFixed(2)}
+                            <br />
+                            <span
+                              style={{
+                                fontSize: 9,
+                                color: "rgba(255,255,255,0.3)",
+                              }}
+                            >
+                              {line.gstPct / 2}%
+                            </span>
+                          </td>
+                        </>
+                      ) : (
+                        <td
+                          style={{
+                            padding: "4px 6px",
+                            textAlign: "right",
+                            color: "#10b981",
+                          }}
+                        >
+                          ₹{line.taxAmount.toFixed(2)}
+                          <br />
+                          <span
+                            style={{
+                              fontSize: 9,
+                              color: "rgba(255,255,255,0.3)",
+                            }}
+                          >
+                            {line.gstPct}%
+                          </span>
+                        </td>
+                      )}
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          textAlign: "right",
+                          color: "#f59e0b",
+                          fontWeight: 700,
+                        }}
+                      >
+                        ₹{(line.taxableValue + line.taxAmount).toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "2px solid rgba(255,255,255,0.15)" }}>
+                  <td
+                    colSpan={4}
+                    style={{
+                      padding: "6px 6px",
+                      color: "rgba(255,255,255,0.6)",
+                      textAlign: "right",
+                      fontSize: 11,
+                    }}
+                  >
+                    Subtotal
+                  </td>
+                  <td
+                    style={{
+                      padding: "6px 6px",
+                      textAlign: "right",
+                      color: "white",
+                      fontWeight: 700,
+                    }}
+                  >
+                    ₹{receipt.total.toFixed(2)}
+                  </td>
+                  {isIntra ? (
+                    <>
+                      <td />
+                      <td />
+                    </>
+                  ) : (
+                    <td />
+                  )}
+                  <td
+                    style={{
+                      padding: "6px 6px",
+                      textAlign: "right",
+                      color: "white",
+                      fontWeight: 700,
+                    }}
+                  >
+                    ₹{receipt.total.toFixed(2)}
+                  </td>
+                </tr>
+                {isIntra ? (
+                  <>
+                    <tr>
+                      <td
+                        colSpan={5}
+                        style={{
+                          padding: "2px 6px",
+                          textAlign: "right",
+                          color: "rgba(255,255,255,0.6)",
+                          fontSize: 11,
+                        }}
+                      >
+                        CGST
+                      </td>
+                      <td
+                        style={{
+                          padding: "2px 6px",
+                          textAlign: "right",
+                          color: "#10b981",
+                        }}
+                      >
+                        ₹{(receipt.cgstAmount || 0).toFixed(2)}
+                      </td>
+                      <td />
+                      <td
+                        style={{
+                          padding: "2px 6px",
+                          textAlign: "right",
+                          color: "#10b981",
+                        }}
+                      >
+                        ₹{(receipt.cgstAmount || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td
+                        colSpan={5}
+                        style={{
+                          padding: "2px 6px",
+                          textAlign: "right",
+                          color: "rgba(255,255,255,0.6)",
+                          fontSize: 11,
+                        }}
+                      >
+                        SGST
+                      </td>
+                      <td />
+                      <td
+                        style={{
+                          padding: "2px 6px",
+                          textAlign: "right",
+                          color: "#10b981",
+                        }}
+                      >
+                        ₹{(receipt.sgstAmount || 0).toFixed(2)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "2px 6px",
+                          textAlign: "right",
+                          color: "#10b981",
+                        }}
+                      >
+                        ₹{(receipt.sgstAmount || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  </>
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      style={{
+                        padding: "2px 6px",
+                        textAlign: "right",
+                        color: "rgba(255,255,255,0.6)",
+                        fontSize: 11,
+                      }}
+                    >
+                      IGST
+                    </td>
+                    <td
+                      style={{
+                        padding: "2px 6px",
+                        textAlign: "right",
+                        color: "#10b981",
+                      }}
+                    >
+                      ₹{(receipt.igstAmount || 0).toFixed(2)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "2px 6px",
+                        textAlign: "right",
+                        color: "#10b981",
+                      }}
+                    >
+                      ₹{(receipt.igstAmount || 0).toFixed(2)}
+                    </td>
+                  </tr>
+                )}
+                <tr
+                  style={{
+                    background: "rgba(245,158,11,0.1)",
+                    borderTop: "2px solid rgba(245,158,11,0.3)",
+                  }}
+                >
+                  <td
+                    colSpan={isIntra ? 7 : 6}
+                    style={{
+                      padding: "6px 6px",
+                      textAlign: "right",
+                      color: "white",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    GRAND TOTAL
+                  </td>
+                  <td
+                    style={{
+                      padding: "6px 6px",
+                      textAlign: "right",
+                      color: "#f59e0b",
+                      fontWeight: 900,
+                      fontSize: 14,
+                    }}
+                  >
+                    ₹{(receipt.grandTotal || receipt.total).toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+            <p
+              style={{
+                color: "rgba(255,255,255,0.3)",
+                fontSize: 9,
+                textAlign: "center",
+                marginTop: 8,
+              }}
+            >
+              This is a computer-generated invoice. Thank you for your business.
+            </p>
+          </div>
+        )}
+
         {/* Receipt content for printing */}
         <div
           id="pos-receipt-printable"
@@ -2190,7 +3081,7 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
   }, [loadData]);
 
   const todaySales = sales.filter((s) => {
-    const d = new Date(Number(s.createdAt) / 1_000_000);
+    const d = new Date(Number(s.createdAt));
     return d.toDateString() === today();
   });
 
@@ -2534,7 +3425,7 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
                   </thead>
                   <tbody>
                     {filtered.map((s, i) => {
-                      const d = new Date(Number(s.createdAt) / 1_000_000);
+                      const d = new Date(Number(s.createdAt));
                       return (
                         <tr
                           key={String(s.id)}

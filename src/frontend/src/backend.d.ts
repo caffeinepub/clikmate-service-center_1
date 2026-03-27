@@ -52,6 +52,7 @@ export interface CatalogItem {
     reorderLevel?: number;
   productId?: string;
   alertBefore?: number;
+  barcode?: string;
 }
 export interface ExpenseEntry {
     id: bigint;
