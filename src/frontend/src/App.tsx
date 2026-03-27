@@ -326,18 +326,6 @@ function Header({
             >
               Admin
             </Link>
-            <Link
-              to="/login"
-              data-ocid="nav.staff_login.link"
-              className="text-sm font-semibold px-4 py-2 rounded-xl border transition-all"
-              style={{
-                borderColor: "rgba(0,255,255,0.4)",
-                background: "rgba(0,255,255,0.1)",
-                color: "rgba(0,255,255,0.9)",
-              }}
-            >
-              Staff Login
-            </Link>
           </nav>
           <div className="hidden md:flex items-center gap-3">
             <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -440,15 +428,6 @@ function Header({
               {link.label}
             </button>
           ))}
-          <Link
-            to="/login"
-            data-ocid="nav.mobile.staff_login.link"
-            onClick={() => setMobileOpen(false)}
-            className="block w-full text-left py-3 text-sm font-semibold border-b border-white/10"
-            style={{ color: "rgba(0,255,255,0.9)" }}
-          >
-            Staff Login
-          </Link>
           <div className="pt-3 flex items-center justify-between">
             <span className="text-xs text-white/70">
               <Phone className="w-3.5 h-3.5 inline mr-1" />
@@ -1684,14 +1663,22 @@ function Footer() {
       </div>
       {/* Internal portal link */}
       <div className="border-t border-white/5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-center">
-          <a
-            href="/#/portal"
-            data-ocid="footer.portal.link"
-            className="text-xs text-white/20 hover:text-white/40 transition-colors"
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-center">
+          <Link
+            to="/login"
+            data-ocid="footer.portal.login_button"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all hover:opacity-90"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(0,255,255,0.15), rgba(0,128,255,0.15))",
+              border: "1px solid rgba(0,255,255,0.3)",
+              color: "rgba(0,255,255,0.85)",
+              boxShadow: "0 0 16px rgba(0,255,255,0.1)",
+            }}
           >
-            Internal &mdash; Employee &amp; Partner Login
-          </a>
+            <LogIn className="w-4 h-4" />
+            Login — Employee &amp; Partner Portal
+          </Link>
         </div>
       </div>
       <div className="border-t border-white/10">

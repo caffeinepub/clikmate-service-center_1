@@ -1,36 +1,38 @@
 # ClikMate Service Center
 
 ## Current State
-- Landing page navbar has an "Admin" link and a "Login / Sign Up" button (customer-facing)
-- `/login` route renders `UnifiedLoginPage.tsx` with Mobile Number + PIN + Role dropdown (loaded from Firestore staff list)
-- Role dropdown shows: Admin, [staff members from Firestore], Customer
-- No dedicated "Staff Login" button in the navbar linking to `/login`
+The catalog uses a flat classification:
+- `itemType: "product" | "service"` — standalone type toggle in forms
+- `category: string` — independent dropdown, not visually linked to itemType
+- `CategoryEntry.appliesTo: "product" | "service"` — categories ARE already parent-filtered, but the UI doesn't present this as a hierarchy
+- Three separate form modals: `ProductFormModal` (Add Product), `ServiceFormModal` (Add Service), `ItemFormModal` (Edit/combined)
+- `ManageCategoriesModal` already stores `appliesTo` but labels it as "Type" with unclear hierarchy
+- 22 migrated items all have `itemType: "product"` (incorrect — printing/scan services need `itemType: "service"`)
 
 ## Requested Changes (Diff)
 
 ### Add
-- "Staff Login" button in the top-right of the landing page navbar (desktop + mobile menu), styled with Cyber-Glass dark theme (glassmorphism border, dark bg, cyan text), linking to `/login`
-- In `UnifiedLoginPage.tsx`: a "Login with Mobile Number" checkbox toggle (unchecked by default)
-- When toggle is **unchecked** (default): show "User ID" label on the first input field + show a "Select Role" dropdown below the PIN/password field
-- "Select Role" dropdown options: SuperAdmin, Student, Teacher, Principal, Accountant, AdmissionStaff, Maintainance_Staff, Library_Staff, Examination_Controller, Print_Staff, Vice_Principal, Manager, Front_Office, Admin, Assistant_Teacher, Cook, Driver, Conductor, Vendor
-- When toggle is **checked**: change first field label to "Enter Mobile Number", hide the "Select Role" dropdown
+- **Smart Migration button** "Fix Migration Types" in the Catalog header (next to "Manage Categories"). On click, fetches all Firestore catalog docs, applies keyword rules (name contains "Print", "Photocopy", "Lamination", "Scan", "PVC" OR category was "Printing & Document" → set `itemType: "service"`; else keep/set `itemType: "product"`), batch-updates Firestore, refreshes local state.
+- Default service sub-categories: add "Print Service", "Typesetting", "Form Fill" alongside existing ones
 
 ### Modify
-- `UnifiedLoginPage.tsx` title: change to "User Login", subtitle: "Sign in to ClikMate ERP", subtext: "Enter your staff credentials to continue"
-- Login page card: central modal style with Cyber-Glass Dark Mode theme (matching existing glassmorphism)
-- Auth logic: when toggle unchecked, validate User ID + PIN + selected role against Firestore `users` collection; when toggle checked, validate mobile + PIN as before
-- Navbar: add "Staff Login" button next to existing nav items (before or after Admin link)
+- **All three form modals** (`ProductFormModal`, `ServiceFormModal`, `ItemFormModal`):
+  - Rename/re-label the `itemType` field as **"Main Category"** and place it at the TOP of the form
+  - Use radio buttons (styled cyan/purple) for the two fixed options: "Product" and "Service"
+  - The **Sub-Category** dropdown below must dynamically filter its options based on the selected Main Category
+  - When Main Category changes, reset Sub-Category to first available option for that type
+  - Product-only fields (Purchase Rate, Stock Qty, Alert Before) remain conditional on Main Category = "Product"
+- **`ManageCategoriesModal`**: Update UI label from "Type" to **"Parent Category"**; show "Parent: Product" or "Parent: Service" pill badge next to each listed category
+- **`DEFAULT_SERVICE_CATEGORIES`** in `utils/storage.ts`: include "Print Service", "Typesetting", "Form Fill" (can keep "Printing & Scan", "Online Forms" too)
 
 ### Remove
-- Nothing removed
+- Nothing removed — data model field names (`itemType`, `category`) stay the same for backward compat
 
 ## Implementation Plan
-1. Update `App.tsx` navbar: add a `<Link to="/login">` "Staff Login" button styled with `border border-cyan-500/40 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/30` glassmorphism style in both desktop nav and mobile menu
-2. Rewrite `UnifiedLoginPage.tsx`:
-   - Title: "User Login", subtitle: "Sign in to ClikMate ERP", subtext: "Enter your staff credentials to continue"
-   - State: `loginWithMobile: boolean` (default false)
-   - Checkbox: "Login with Mobile Number" — toggles `loginWithMobile`
-   - When `loginWithMobile=false`: label = "User ID", show Select Role dropdown with the 19 roles listed
-   - When `loginWithMobile=true`: label = "Enter Mobile Number", hide Select Role dropdown
-   - Auth: unchanged Firestore validation logic, but also map selected role from the new list to existing admin/staff/customer logic
-   - Design: centered card with dark glassmorphism bg (`rgba(8,13,26,0.85)`), cyan border, backdrop blur
+1. Update `utils/storage.ts` — extend `DEFAULT_SERVICE_CATEGORIES` with new defaults
+2. In `AdminDashboard.tsx`:
+   a. `ProductFormModal`: add `mainCategory` state (default "product"), show radio buttons at top, derive sub-category list from `mainCategory`, reset `category` on main change, wire `itemType` = `mainCategory` on save
+   b. `ServiceFormModal`: same, default "service"
+   c. `ItemFormModal`: move `itemType` select to top position, relabel as "Main Category", make sub-category dropdown filter by selected itemType, reset category when itemType changes
+   d. `ManageCategoriesModal`: update `newType` label to "Parent Category" with clear Product/Service radio, add parent pill badges to each category row
+   e. Add `runSmartMigration` async function + "Fix Migration Types" button (orange styled) in catalog header; show success toast with count of updated items; update React state after Firestore batch

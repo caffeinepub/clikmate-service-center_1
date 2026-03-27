@@ -579,7 +579,10 @@ function ItemFormModal({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const _cats = getCategories();
-  const serviceCategories = _cats
+  const allProductCats = _cats
+    .filter((c) => c.appliesTo === "product")
+    .map((c) => c.name);
+  const allServiceCats = _cats
     .filter((c) => c.appliesTo === "service")
     .map((c) => c.name);
 
@@ -819,6 +822,85 @@ function ItemFormModal({
           {/* Left column */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
+              <label htmlFor="main-category-radio" style={labelStyle}>
+                Main Category *
+              </label>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                {(["product", "service"] as const).map((opt) => (
+                  <label
+                    key={opt}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      cursor: "pointer",
+                      padding: "8px 16px",
+                      borderRadius: 10,
+                      border: `1px solid ${form.itemType === opt ? (opt === "product" ? "rgba(0,255,255,0.5)" : "rgba(167,139,250,0.5)") : "rgba(255,255,255,0.1)"}`,
+                      background:
+                        form.itemType === opt
+                          ? opt === "product"
+                            ? "rgba(0,255,255,0.08)"
+                            : "rgba(167,139,250,0.08)"
+                          : "transparent",
+                      color:
+                        form.itemType === opt
+                          ? opt === "product"
+                            ? "#00ffff"
+                            : "#a78bfa"
+                          : "rgba(255,255,255,0.5)",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="editMainCategory"
+                      value={opt}
+                      checked={form.itemType === opt}
+                      onChange={() => {
+                        const cats =
+                          opt === "product" ? allProductCats : allServiceCats;
+                        setForm((p) => ({
+                          ...p,
+                          itemType: opt,
+                          category: cats[0] || "",
+                        }));
+                      }}
+                      style={{ display: "none" }}
+                    />
+                    {opt === "product" ? "📦 Product" : "🛠 Service"}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="modal-item-category" style={labelStyle}>
+                Sub-Category
+              </label>
+              <select
+                id="modal-item-category"
+                data-ocid="admin.category.select"
+                style={{ ...inputStyle, appearance: "none" }}
+                value={form.category}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, category: e.target.value }))
+                }
+              >
+                {(form.itemType === "product"
+                  ? allProductCats
+                  : allServiceCats
+                ).map((c) => (
+                  <option key={c} value={c} style={{ background: "#1a2236" }}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
               <label htmlFor="modal-item-name" style={labelStyle}>
                 Item Name *
               </label>
@@ -832,52 +914,6 @@ function ItemFormModal({
                   setForm((p) => ({ ...p, name: e.target.value }))
                 }
               />
-            </div>
-
-            <div>
-              <label htmlFor="modal-item-category" style={labelStyle}>
-                Category
-              </label>
-              <select
-                id="modal-item-category"
-                data-ocid="admin.category.select"
-                style={{ ...inputStyle, appearance: "none" }}
-                value={form.category}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, category: e.target.value }))
-                }
-              >
-                {serviceCategories.map((c) => (
-                  <option key={c} value={c} style={{ background: "#1a2236" }}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="modal-item-type" style={labelStyle}>
-                Item Type *
-              </label>
-              <select
-                id="modal-item-type"
-                data-ocid="admin.itemtype.select"
-                style={{ ...inputStyle, appearance: "none" }}
-                value={form.itemType}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    itemType: e.target.value as "product" | "service",
-                  }))
-                }
-              >
-                <option value="product" style={{ background: "#1a2236" }}>
-                  Product (Physical Goods)
-                </option>
-                <option value="service" style={{ background: "#1a2236" }}>
-                  Service (Digital/Print)
-                </option>
-              </select>
             </div>
 
             <div>
@@ -1417,6 +1453,12 @@ function ProductFormModal({
   const productCategories = _prodCats
     .filter((c) => c.appliesTo === "product")
     .map((c) => c.name);
+  const prodServiceCategories = _prodCats
+    .filter((c) => c.appliesTo === "service")
+    .map((c) => c.name);
+  const [mainCategoryProd, setMainCategoryProd] = React.useState<
+    "product" | "service"
+  >("product");
   const [form, setForm] = useState({
     name: "",
     category: productCategories[0] || "Stationery",
@@ -1455,18 +1497,27 @@ function ProductFormModal({
         category: form.category,
         description: form.description,
         price: form.saleRate,
-        stockStatus: "In Stock",
+        stockStatus: mainCategoryProd === "product" ? "In Stock" : "N/A",
         requiredDocuments: "",
         requiresPdfCalc: false,
         published: true,
         createdAt: Date.now() as unknown as bigint,
         mediaFiles: [],
         mediaTypes: [],
-        itemType: "product",
+        itemType: mainCategoryProd,
         saleRate: sr,
-        purchaseRate: Number.parseFloat(form.purchaseRate) || 0,
-        quantity: Number.parseInt(form.quantity) || 0,
-        reorderLevel: Number.parseInt(form.reorderLevel) || 5,
+        purchaseRate:
+          mainCategoryProd === "product"
+            ? Number.parseFloat(form.purchaseRate) || 0
+            : 0,
+        quantity:
+          mainCategoryProd === "product"
+            ? Number.parseInt(form.quantity) || 0
+            : undefined,
+        reorderLevel:
+          mainCategoryProd === "product"
+            ? Number.parseInt(form.reorderLevel) || 5
+            : undefined,
       };
       const existingItems2 = await fsGetCollection<any>("catalog");
       const productId2 = generateProductId(existingItems2);
@@ -1562,6 +1613,59 @@ function ProductFormModal({
           }}
         >
           <div>
+            <label htmlFor="main-category-radio" style={labelStyle}>
+              Main Category *
+            </label>
+            <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+              {(["product", "service"] as const).map((opt) => (
+                <label
+                  key={opt}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    padding: "8px 16px",
+                    borderRadius: 10,
+                    border: `1px solid ${mainCategoryProd === opt ? (opt === "product" ? "rgba(0,255,255,0.5)" : "rgba(167,139,250,0.5)") : "rgba(255,255,255,0.1)"}`,
+                    background:
+                      mainCategoryProd === opt
+                        ? opt === "product"
+                          ? "rgba(0,255,255,0.08)"
+                          : "rgba(167,139,250,0.08)"
+                        : "transparent",
+                    color:
+                      mainCategoryProd === opt
+                        ? opt === "product"
+                          ? "#00ffff"
+                          : "#a78bfa"
+                        : "rgba(255,255,255,0.5)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="mainCategoryProd"
+                    value={opt}
+                    checked={mainCategoryProd === opt}
+                    onChange={() => {
+                      const cats =
+                        opt === "product"
+                          ? productCategories
+                          : prodServiceCategories;
+                      setMainCategoryProd(opt);
+                      setForm((p) => ({ ...p, category: cats[0] || "" }));
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  {opt === "product" ? "📦 Product" : "🛠 Service"}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
             <label htmlFor="product-name" style={labelStyle}>
               Name *
             </label>
@@ -1576,7 +1680,7 @@ function ProductFormModal({
           </div>
           <div>
             <label htmlFor="product-category" style={labelStyle}>
-              Category
+              Sub-Category
             </label>
             <select
               id="product-category"
@@ -1587,7 +1691,10 @@ function ProductFormModal({
                 setForm((p) => ({ ...p, category: e.target.value }))
               }
             >
-              {productCategories.map((c) => (
+              {(mainCategoryProd === "product"
+                ? productCategories
+                : prodServiceCategories
+              ).map((c) => (
                 <option key={c} value={c} style={{ background: "#1a2236" }}>
                   {c}
                 </option>
@@ -1732,9 +1839,15 @@ function ServiceFormModal({
   const serviceCategories2 = _svcCats
     .filter((c) => c.appliesTo === "service")
     .map((c) => c.name);
+  const svcProductCategories = _svcCats
+    .filter((c) => c.appliesTo === "product")
+    .map((c) => c.name);
+  const [mainCategorySvc, setMainCategorySvc] = React.useState<
+    "product" | "service"
+  >("service");
   const [form, setForm] = useState({
     name: "",
-    category: serviceCategories2[0] || "Printing & Scan",
+    category: serviceCategories2[0] || "Print Service",
     saleRate: "",
     description: "",
     requiredDocuments: "",
@@ -1776,9 +1889,9 @@ function ServiceFormModal({
         createdAt: Date.now() as unknown as bigint,
         mediaFiles: [],
         mediaTypes: [],
-        itemType: "service",
+        itemType: mainCategorySvc,
         saleRate: sr,
-        purchaseRate: 0,
+        purchaseRate: mainCategorySvc === "product" ? 0 : 0,
       };
       const existingItems3 = await fsGetCollection<any>("catalog");
       const svcProductId = generateProductId(existingItems3);
@@ -1870,6 +1983,59 @@ function ServiceFormModal({
           }}
         >
           <div>
+            <label htmlFor="main-category-radio" style={labelStyle}>
+              Main Category *
+            </label>
+            <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+              {(["product", "service"] as const).map((opt) => (
+                <label
+                  key={opt}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    padding: "8px 16px",
+                    borderRadius: 10,
+                    border: `1px solid ${mainCategorySvc === opt ? (opt === "product" ? "rgba(0,255,255,0.5)" : "rgba(167,139,250,0.5)") : "rgba(255,255,255,0.1)"}`,
+                    background:
+                      mainCategorySvc === opt
+                        ? opt === "product"
+                          ? "rgba(0,255,255,0.08)"
+                          : "rgba(167,139,250,0.08)"
+                        : "transparent",
+                    color:
+                      mainCategorySvc === opt
+                        ? opt === "product"
+                          ? "#00ffff"
+                          : "#a78bfa"
+                        : "rgba(255,255,255,0.5)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="mainCategorySvc"
+                    value={opt}
+                    checked={mainCategorySvc === opt}
+                    onChange={() => {
+                      const cats =
+                        opt === "service"
+                          ? serviceCategories2
+                          : svcProductCategories;
+                      setMainCategorySvc(opt);
+                      setForm((p) => ({ ...p, category: cats[0] || "" }));
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  {opt === "product" ? "📦 Product" : "🛠 Service"}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
             <label htmlFor="service-name" style={labelStyle}>
               Name *
             </label>
@@ -1884,7 +2050,7 @@ function ServiceFormModal({
           </div>
           <div>
             <label htmlFor="service-category" style={labelStyle}>
-              Category
+              Sub-Category
             </label>
             <select
               id="service-category"
@@ -1895,7 +2061,10 @@ function ServiceFormModal({
                 setForm((p) => ({ ...p, category: e.target.value }))
               }
             >
-              {serviceCategories2.map((c) => (
+              {(mainCategorySvc === "service"
+                ? serviceCategories2
+                : svcProductCategories
+              ).map((c) => (
                 <option key={c} value={c} style={{ background: "#1a2236" }}>
                   {c}
                 </option>
@@ -2217,6 +2386,22 @@ function ManageCategoriesModal({
             >
               {cat.name}
             </span>
+            <span
+              style={{
+                padding: "2px 8px",
+                borderRadius: 12,
+                fontSize: 11,
+                fontWeight: 600,
+                background:
+                  cat.appliesTo === "product"
+                    ? "rgba(0,255,255,0.1)"
+                    : "rgba(167,139,250,0.1)",
+                color: cat.appliesTo === "product" ? "#00ffff" : "#a78bfa",
+                border: `1px solid ${cat.appliesTo === "product" ? "rgba(0,255,255,0.3)" : "rgba(167,139,250,0.3)"}`,
+              }}
+            >
+              {cat.appliesTo === "product" ? "Product" : "Service"}
+            </span>
             <button
               type="button"
               onClick={() => startEdit(cat)}
@@ -2318,6 +2503,7 @@ function ManageCategoriesModal({
             onChange={(e) =>
               setNewType(e.target.value as "product" | "service")
             }
+            title="Parent Category *"
             style={{
               padding: "8px 12px",
               borderRadius: 8,
@@ -2327,8 +2513,8 @@ function ManageCategoriesModal({
               fontSize: 13,
             }}
           >
-            <option value="product">Product</option>
-            <option value="service">Service</option>
+            <option value="product">📦 Product (Parent)</option>
+            <option value="service">🛠 Service (Parent)</option>
           </select>
           <button
             type="button"
@@ -2361,7 +2547,7 @@ function ManageCategoriesModal({
               marginBottom: 8,
             }}
           >
-            Product Categories
+            📦 Product Sub-Categories
           </div>
           {productCats.length === 0 && (
             <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
@@ -2383,7 +2569,7 @@ function ManageCategoriesModal({
               marginBottom: 8,
             }}
           >
-            Service Categories
+            🛠 Service Sub-Categories
           </div>
           {serviceCats.length === 0 && (
             <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
@@ -2424,6 +2610,50 @@ function CatalogSection({
     getCategories(),
   );
   const [showManageCategories, setShowManageCategories] = React.useState(false);
+  const [migrating, setMigrating] = React.useState(false);
+
+  async function runSmartMigration() {
+    setMigrating(true);
+    try {
+      const items = await fsGetCollection<any>("catalog");
+      const serviceKeywords = [
+        "print",
+        "photocopy",
+        "lamination",
+        "scan",
+        "pvc",
+      ];
+      const serviceCategories_m = ["printing & document", "print service"];
+      let count = 0;
+      for (const item of items) {
+        const nameLower = (item.name || "").toLowerCase();
+        const catLower = (item.category || "").toLowerCase();
+        const isService =
+          serviceKeywords.some((k) => nameLower.includes(k)) ||
+          serviceCategories_m.some((c) => catLower.includes(c));
+        if (isService && item.itemType !== "service") {
+          await fsUpdateDoc("catalog", String(item.productId || item.id), {
+            itemType: "service",
+          });
+          count++;
+        } else if (!isService && item.itemType !== "product") {
+          await fsUpdateDoc("catalog", String(item.productId || item.id), {
+            itemType: "product",
+          });
+          count++;
+        }
+      }
+      const updated = await fsGetCollection<any>("catalog");
+      onItemAdded(updated[0]); // trigger parent refresh
+      onRefresh();
+      toast.success(`✓ Migration complete. ${count} items updated.`);
+    } catch (err) {
+      toast.error("Migration failed. Check console.");
+      console.error(err);
+    } finally {
+      setMigrating(false);
+    }
+  }
 
   React.useEffect(() => {
     const handler = () => setCategories(getCategories());
@@ -2720,6 +2950,29 @@ function CatalogSection({
             }}
           >
             <Settings style={{ width: 16, height: 16 }} /> Manage Categories
+          </button>
+          <button
+            type="button"
+            data-ocid="admin.catalog.secondary_button"
+            onClick={runSmartMigration}
+            disabled={migrating}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 10,
+              border: "1px solid rgba(251,146,60,0.4)",
+              background: "rgba(251,146,60,0.15)",
+              color: "#fb923c",
+              cursor: migrating ? "not-allowed" : "pointer",
+              fontWeight: 600,
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              whiteSpace: "nowrap",
+              opacity: migrating ? 0.7 : 1,
+            }}
+          >
+            {migrating ? "⏳ Migrating..." : "🔧 Fix Migration Types"}
           </button>
         </div>
       </div>

@@ -87,7 +87,13 @@ export function generateProductId(
 // ─── Category Management ──────────────────────────────────────────────────────
 
 export const DEFAULT_PRODUCT_CATEGORIES = ["Stationery", "Electronics"];
-export const DEFAULT_SERVICE_CATEGORIES = ["Printing & Scan", "Online Forms"];
+export const DEFAULT_SERVICE_CATEGORIES = [
+  "Print Service",
+  "Typesetting",
+  "Form Fill",
+  "Printing & Scan",
+  "Online Forms",
+];
 
 export interface CategoryEntry {
   id: string;

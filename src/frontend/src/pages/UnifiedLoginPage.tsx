@@ -15,24 +15,11 @@ type StaffMember = {
 
 const ROLE_OPTIONS = [
   "SuperAdmin",
-  "Student",
-  "Teacher",
-  "Principal",
-  "Accountant",
-  "AdmissionStaff",
-  "Maintainance_Staff",
-  "Library_Staff",
-  "Examination_Controller",
-  "Print_Staff",
-  "Vice_Principal",
-  "Manager",
-  "Front_Office",
   "Admin",
-  "Assistant_Teacher",
-  "Cook",
-  "Driver",
-  "Conductor",
-  "Vendor",
+  "Manager",
+  "POS_Staff",
+  "Print_Staff",
+  "Accountant",
 ];
 
 export default function UnifiedLoginPage() {
