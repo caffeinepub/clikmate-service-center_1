@@ -8354,6 +8354,219 @@ function SettingsSection() {
 
   return (
     <div style={{ padding: 24 }}>
+      {/* GST & Tax Settings Card */}
+      <div style={{ ...S.card, marginBottom: 24 }}>
+        <div
+          style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: "rgba(16,185,129,0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 18,
+            }}
+          >
+            🧾
+          </div>
+          <div>
+            <h3
+              style={{
+                color: "white",
+                fontWeight: 700,
+                fontSize: 15,
+                margin: 0,
+              }}
+            >
+              GST &amp; Tax Settings
+            </h3>
+            <p
+              style={{
+                color: "rgba(255,255,255,0.4)",
+                fontSize: 12,
+                margin: 0,
+              }}
+            >
+              Configure GST for B2B invoicing and tax compliance
+            </p>
+          </div>
+        </div>
+        <div
+          style={{
+            padding: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          {/* Enable GST toggle */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  color: "white",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  margin: 0,
+                }}
+              >
+                Enable GST Features
+              </p>
+              <p
+                style={{
+                  color: "rgba(255,255,255,0.4)",
+                  fontSize: 11,
+                  margin: "2px 0 0",
+                }}
+              >
+                Show GST fields in Catalog, POS checkout, and invoices
+              </p>
+              <span
+                style={{
+                  display: "inline-block",
+                  marginTop: 6,
+                  padding: "3px 10px",
+                  borderRadius: 20,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  background: gstEnabled
+                    ? "rgba(16,185,129,0.15)"
+                    : "rgba(255,255,255,0.08)",
+                  color: gstEnabled ? "#10b981" : "rgba(255,255,255,0.4)",
+                  border: `1px solid ${gstEnabled ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.12)"}`,
+                }}
+              >
+                {gstEnabled ? "✓ GST Mode: ACTIVE" : "GST Mode: INACTIVE"}
+              </span>
+            </div>
+            <div
+              role="switch"
+              aria-checked={gstEnabled}
+              tabIndex={0}
+              data-ocid="admin.settings.gst_toggle"
+              onClick={() => setGstEnabled(!gstEnabled)}
+              onKeyDown={(e) => {
+                if (e.key === " " || e.key === "Enter")
+                  setGstEnabled(!gstEnabled);
+              }}
+              style={{
+                width: 60,
+                height: 32,
+                borderRadius: 16,
+                cursor: "pointer",
+                background: gstEnabled
+                  ? "rgba(16,185,129,0.35)"
+                  : "rgba(255,255,255,0.1)",
+                border: `2px solid ${gstEnabled ? "rgba(16,185,129,0.7)" : "rgba(255,255,255,0.2)"}`,
+                position: "relative",
+                transition: "background 0.2s",
+                flexShrink: 0,
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: gstEnabled ? 28 : 2,
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: gstEnabled ? "#10b981" : "rgba(255,255,255,0.5)",
+                  transition: "left 0.2s",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                }}
+              />
+            </div>
+          </div>
+          {/* Shop GSTIN */}
+          <div>
+            <label
+              htmlFor="shop-gstin-input"
+              style={{
+                display: "block",
+                color: "rgba(255,255,255,0.6)",
+                fontSize: 12,
+                fontWeight: 600,
+                marginBottom: 6,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              Shop GSTIN
+            </label>
+            <input
+              id="shop-gstin-input"
+              data-ocid="admin.settings.shop_gstin.input"
+              value={shopGstNumber}
+              onChange={(e) => setShopGstNumber(e.target.value.toUpperCase())}
+              placeholder="22AAAAA0000A1Z5"
+              maxLength={15}
+              style={{ ...S.input, width: "100%" }}
+            />
+            <p
+              style={{
+                color: "rgba(255,255,255,0.3)",
+                fontSize: 11,
+                marginTop: 4,
+              }}
+            >
+              First 2 digits = State Code (used for CGST/SGST vs IGST detection)
+            </p>
+          </div>
+          <button
+            type="button"
+            data-ocid="admin.settings.save_gst.button"
+            onClick={async () => {
+              try {
+                await fsSetSettings("appConfig", {
+                  whatsappBotEnabled: waBotEnabled,
+                  whatsappRateTemplate: waRateTemplate,
+                  gstEnabled,
+                  shopGstNumber,
+                });
+                localStorage.setItem(
+                  "clikmate_gst_settings",
+                  JSON.stringify({ enabled: gstEnabled, shopGstNumber }),
+                );
+                toast.success("GST settings saved!");
+              } catch {
+                toast.error("Failed to save GST settings.");
+              }
+            }}
+            style={{
+              padding: "10px 24px",
+              borderRadius: 10,
+              border: "none",
+              background: "#059669",
+              color: "white",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 14,
+              alignSelf: "flex-start",
+            }}
+          >
+            Save GST Settings
+          </button>
+        </div>
+      </div>
+
       {/* UPI Payment Settings */}
       <div style={{ ...S.card, marginBottom: 24 }}>
         <div
@@ -8962,200 +9175,6 @@ function SettingsSection() {
               your WhatsApp Business number.
             </p>
           </div>
-        </div>
-      </div>
-
-      {/* GST & Tax Settings Card */}
-      <div style={{ ...S.card, marginBottom: 24 }}>
-        <div
-          style={{
-            padding: "16px 20px",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: "rgba(16,185,129,0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 18,
-            }}
-          >
-            🧾
-          </div>
-          <div>
-            <h3
-              style={{
-                color: "white",
-                fontWeight: 700,
-                fontSize: 15,
-                margin: 0,
-              }}
-            >
-              GST &amp; Tax Settings
-            </h3>
-            <p
-              style={{
-                color: "rgba(255,255,255,0.4)",
-                fontSize: 12,
-                margin: 0,
-              }}
-            >
-              Configure GST for B2B invoicing and tax compliance
-            </p>
-          </div>
-        </div>
-        <div
-          style={{
-            padding: 20,
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-          }}
-        >
-          {/* Enable GST toggle */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <div>
-              <p
-                style={{
-                  color: "white",
-                  fontWeight: 600,
-                  fontSize: 13,
-                  margin: 0,
-                }}
-              >
-                Enable GST Features
-              </p>
-              <p
-                style={{
-                  color: "rgba(255,255,255,0.4)",
-                  fontSize: 11,
-                  margin: "2px 0 0",
-                }}
-              >
-                Show GST fields in Catalog, POS checkout, and invoices
-              </p>
-            </div>
-            <div
-              role="switch"
-              aria-checked={gstEnabled}
-              tabIndex={0}
-              data-ocid="admin.settings.gst_toggle"
-              onClick={() => setGstEnabled(!gstEnabled)}
-              onKeyDown={(e) => {
-                if (e.key === " " || e.key === "Enter")
-                  setGstEnabled(!gstEnabled);
-              }}
-              style={{
-                width: 44,
-                height: 24,
-                borderRadius: 12,
-                cursor: "pointer",
-                background: gstEnabled
-                  ? "rgba(16,185,129,0.3)"
-                  : "rgba(255,255,255,0.1)",
-                border: `1px solid ${gstEnabled ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.15)"}`,
-                position: "relative",
-                transition: "background 0.2s",
-                flexShrink: 0,
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  top: 2,
-                  left: gstEnabled ? 22 : 2,
-                  width: 20,
-                  height: 20,
-                  borderRadius: "50%",
-                  background: gstEnabled ? "#10b981" : "rgba(255,255,255,0.5)",
-                  transition: "left 0.2s",
-                }}
-              />
-            </div>
-          </div>
-          {/* Shop GSTIN */}
-          <div>
-            <label
-              htmlFor="shop-gstin-input"
-              style={{
-                display: "block",
-                color: "rgba(255,255,255,0.6)",
-                fontSize: 12,
-                fontWeight: 600,
-                marginBottom: 6,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              Shop GSTIN
-            </label>
-            <input
-              id="shop-gstin-input"
-              data-ocid="admin.settings.shop_gstin.input"
-              value={shopGstNumber}
-              onChange={(e) => setShopGstNumber(e.target.value.toUpperCase())}
-              placeholder="22AAAAA0000A1Z5"
-              maxLength={15}
-              style={{ ...S.input, width: "100%" }}
-            />
-            <p
-              style={{
-                color: "rgba(255,255,255,0.3)",
-                fontSize: 11,
-                marginTop: 4,
-              }}
-            >
-              First 2 digits = State Code (used for CGST/SGST vs IGST detection)
-            </p>
-          </div>
-          <button
-            type="button"
-            data-ocid="admin.settings.save_gst.button"
-            onClick={async () => {
-              try {
-                await fsSetSettings("appConfig", {
-                  whatsappBotEnabled: waBotEnabled,
-                  whatsappRateTemplate: waRateTemplate,
-                  gstEnabled,
-                  shopGstNumber,
-                });
-                localStorage.setItem(
-                  "clikmate_gst_settings",
-                  JSON.stringify({ enabled: gstEnabled, shopGstNumber }),
-                );
-                toast.success("GST settings saved!");
-              } catch {
-                toast.error("Failed to save GST settings.");
-              }
-            }}
-            style={{
-              padding: "10px 24px",
-              borderRadius: 10,
-              border: "none",
-              background: "#059669",
-              color: "white",
-              cursor: "pointer",
-              fontWeight: 600,
-              fontSize: 14,
-              alignSelf: "flex-start",
-            }}
-          >
-            Save GST Settings
-          </button>
         </div>
       </div>
 
@@ -17161,6 +17180,18 @@ export default function AdminDashboard() {
                 setSidebarOpen(false);
               }}
             />
+            {getGstSettings().enabled && (
+              <NavItem
+                icon={FileText}
+                label="GST Reports"
+                active={false}
+                ocid="admin.gst_reports.shortcut"
+                onClick={() => {
+                  window.location.hash = "#/gst-reports";
+                  setSidebarOpen(false);
+                }}
+              />
+            )}
           </NavGroup>
         </div>
 

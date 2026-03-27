@@ -2,6 +2,8 @@ import type { CatalogItem, KhataEntry, PosSaleItem } from "@/backend.d";
 import {
   fsAddDoc,
   fsGetCollection,
+  fsGetSettings,
+  fsSetSettings,
   fsSubscribeCollection,
   fsUpdateDoc,
 } from "@/utils/firestoreService";
@@ -1863,6 +1865,32 @@ function CheckoutModal({
         grandTotal: isGstInvoice ? grandTotal : subtotal,
         taxLines: isGstInvoice ? taxLines : [],
       };
+      // Generate sequential invoice number
+      let invoiceNumber = "";
+      try {
+        const now = new Date();
+        const month = now.getMonth() + 1; // 1-12
+        const year = now.getFullYear();
+        const fyStart = month >= 4 ? year : year - 1;
+        const fyEnd = (fyStart + 1) % 100;
+        const fy = `${fyStart.toString().slice(-2)}${String(fyEnd).padStart(2, "0")}`;
+        const counterDoc = await fsGetSettings<{ counter: number }>(
+          "invoiceCounter",
+        );
+        const counter = counterDoc ? counterDoc.counter + 1 : 1;
+        await fsSetSettings("invoiceCounter", { counter });
+        invoiceNumber = `INV-${fy}-${String(counter).padStart(4, "0")}`;
+      } catch {
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        const year = now.getFullYear();
+        const fyStart = month >= 4 ? year : year - 1;
+        const fyEnd = (fyStart + 1) % 100;
+        const fy = `${fyStart.toString().slice(-2)}${String(fyEnd).padStart(2, "0")}`;
+        invoiceNumber = `INV-${fy}-${Date.now().toString().slice(-6)}`;
+      }
+      (newSale as any).invoiceNumber = invoiceNumber;
+
       // Save sale to Firestore
       await fsAddDoc("orders", newSale);
 

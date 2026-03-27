@@ -72,6 +72,7 @@ import BulkDashboard from "./pages/BulkDashboard";
 import BulkLoginPage from "./pages/BulkLoginPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import ExpenseTrackerPage from "./pages/ExpenseTrackerPage";
+import GstReportsPage from "./pages/GstReportsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import KhataSettlementPage from "./pages/KhataSettlementPage";
 import OrderSuccessPage from "./pages/OrderSuccessPage";
@@ -1937,6 +1938,7 @@ export default function App() {
           <Route path="/clock-in" element={<StaffClockInPage />} />
           <Route path="/staff-dashboard" element={<StaffDashboard />} />
           <Route path="/expense-tracker" element={<ExpenseTrackerPage />} />
+          <Route path="/gst-reports" element={<GstReportsPage />} />
           <Route
             path="/admin/khata-settlement"
             element={<KhataSettlementPage />}
