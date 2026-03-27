@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   expenses: "clikmate_expenses",
   typesettingQuotes: "clikmate_typesetting_quotes",
   reviews: "clikmate_reviews",
+  categories: "clikmate_categories",
 } as const;
 
 export function storageGet<T>(key: string, fallback: T): T {
@@ -81,4 +82,36 @@ export function generateProductId(
     }
   }
   return `ITM-${max}`;
+}
+
+// ─── Category Management ──────────────────────────────────────────────────────
+
+export const DEFAULT_PRODUCT_CATEGORIES = ["Stationery", "Electronics"];
+export const DEFAULT_SERVICE_CATEGORIES = ["Printing & Scan", "Online Forms"];
+
+export interface CategoryEntry {
+  id: string;
+  name: string;
+  appliesTo: "product" | "service";
+}
+
+export function getCategories(): CategoryEntry[] {
+  const stored = storageGet<CategoryEntry[]>(STORAGE_KEYS.categories, []);
+  if (stored.length === 0) {
+    const defaults: CategoryEntry[] = [
+      ...DEFAULT_PRODUCT_CATEGORIES.map((name, i) => ({
+        id: `prod-${i}`,
+        name,
+        appliesTo: "product" as const,
+      })),
+      ...DEFAULT_SERVICE_CATEGORIES.map((name, i) => ({
+        id: `svc-${i}`,
+        name,
+        appliesTo: "service" as const,
+      })),
+    ];
+    storageSet(STORAGE_KEYS.categories, defaults);
+    return defaults;
+  }
+  return stored;
 }

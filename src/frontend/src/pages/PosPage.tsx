@@ -1,13 +1,12 @@
 import type { CatalogItem, KhataEntry, PosSaleItem } from "@/backend.d";
-// useAllCatalogItems replaced by localStorage read
-import { useNavigate } from "@/utils/router";
 import {
-  STORAGE_KEYS,
-  storageAddItem,
-  storageGet,
-  storageSet,
-  storageUpdateItem,
-} from "@/utils/storage";
+  fsAddDoc,
+  fsGetCollection,
+  fsSubscribeCollection,
+  fsUpdateDoc,
+} from "@/utils/firestoreService";
+import { useNavigate } from "@/utils/router";
+import { STORAGE_KEYS, storageGet, storageSet } from "@/utils/storage";
 import {
   AlertCircle,
   BookOpen,
@@ -91,7 +90,15 @@ function parseRate(price: string): number {
 export default function PosPage() {
   const navigate = useNavigate();
   const isFetching = false;
-  const catalogItems = storageGet<CatalogItem[]>(STORAGE_KEYS.catalog, []);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+
+  // Subscribe to catalog via Firestore onSnapshot
+  useEffect(() => {
+    const unsub = fsSubscribeCollection<any>("catalog", (items: any[]) => {
+      setCatalogItems(items as CatalogItem[]);
+    });
+    return () => unsub();
+  }, []);
 
   // -- Barcode Scanner State --
   const [scannerActive, setScannerActive] = useState(true);
@@ -1277,16 +1284,17 @@ function BillingPanel({
 }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerMobile, setCustomerMobile] = useState("");
-  const [khataClients] = useState<
+  const [khataClients, setKhataClients] = useState<
     Array<{ phone: string; customerName: string }>
-  >(() => {
-    try {
-      const s = localStorage.getItem("clikmate_khata_entries");
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  >([]);
+
+  useEffect(() => {
+    fsGetCollection<{ id: string; phone: string; customerName: string }>(
+      "khata",
+    )
+      .then(setKhataClients)
+      .catch(console.error);
+  }, []);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receipt, setReceipt] = useState<{
     id: string;
@@ -1740,44 +1748,45 @@ function CheckoutModal({
         staffMobile,
         createdAt: BigInt(Date.now()),
       };
-      storageAddItem(STORAGE_KEYS.posSales, newSale);
+      // Save sale to Firestore
+      await fsAddDoc("orders", newSale);
 
-      // Deduct stock for product items
-      const catalogList = storageGet<any[]>(STORAGE_KEYS.catalog, []);
-      let stockUpdated = false;
-      const updatedCatalog = catalogList.map((catalogItem) => {
-        if (catalogItem.itemType !== "product") return catalogItem;
-        const sold = cart.find((c) => c.name === catalogItem.name);
-        if (!sold) return catalogItem;
-        stockUpdated = true;
-        return {
-          ...catalogItem,
-          quantity: Math.max(0, (catalogItem.quantity || 0) - sold.qty),
-        };
-      });
-      if (stockUpdated) {
-        storageSet(STORAGE_KEYS.catalog, updatedCatalog);
+      // Deduct stock for product items via Firestore
+      const currentCatalog = await fsGetCollection<any>("catalog");
+      for (const cartItem of cart) {
+        const catalogItem = currentCatalog.find(
+          (c: any) => c.name === cartItem.name,
+        );
+        if (
+          catalogItem &&
+          catalogItem.itemType === "product" &&
+          catalogItem.productId
+        ) {
+          const newQty = Math.max(
+            0,
+            (catalogItem.quantity || 0) - cartItem.qty,
+          );
+          await fsUpdateDoc("catalog", catalogItem.productId, {
+            quantity: newQty,
+          });
+        }
       }
 
       if (paymentMode === "Khata" && phone) {
-        const khataList = storageGet<any[]>(STORAGE_KEYS.khata, []);
-        const existing = khataList.find((e) => e.phone === phone);
+        const khataList = await fsGetCollection<any>("khata");
+        const existing = khataList.find((e: any) => e.phone === phone);
         if (existing) {
-          const updatedList = khataList.map((e) =>
-            e.phone === phone
-              ? { ...e, totalDue: (e.totalDue || 0) + subtotal }
-              : e,
-          );
-          storageSet(STORAGE_KEYS.khata, updatedList);
+          await fsUpdateDoc("khata", String(existing.id), {
+            totalDue: (existing.totalDue || 0) + subtotal,
+          });
         } else {
-          storageAddItem(STORAGE_KEYS.khata, {
-            id: BigInt(Date.now()),
+          await fsAddDoc("khata", {
             phone,
             customerName: khataCustomer || phone,
             name: khataCustomer || phone,
             totalDue: subtotal,
-            createdAt: BigInt(Date.now()),
-            lastUpdated: BigInt(Date.now()),
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
           });
         }
       }
@@ -2155,13 +2164,25 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
   const [saving, setSaving] = useState(false);
   const [tallyFilter, setTallyFilter] = useState<string | null>(null);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     setLoadingSales(true);
-    const s = storageGet<any[]>(STORAGE_KEYS.posSales, []);
-    const k = storageGet<KhataEntry[]>(STORAGE_KEYS.khata, []);
-    setSales(s);
-    setKhataList(k);
-    setLoadingSales(false);
+    try {
+      const [s, k] = await Promise.all([
+        fsGetCollection<any>("orders"),
+        fsGetCollection<any>("khata"),
+      ]);
+      setSales(s);
+      setKhataList(k);
+    } catch (e) {
+      console.error("Failed to load POS data:", e);
+      // Fallback to localStorage
+      const s = storageGet<any[]>(STORAGE_KEYS.posSales, []);
+      const k = storageGet<KhataEntry[]>(STORAGE_KEYS.khata, []);
+      setSales(s);
+      setKhataList(k);
+    } finally {
+      setLoadingSales(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -2198,7 +2219,7 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
     setSearchResult(entry ?? "not_found");
   }
 
-  function handleAddDue() {
+  async function handleAddDue() {
     if (!duePhone || !dueAmount) {
       toast.error("Phone and amount required.");
       return;
@@ -2207,25 +2228,26 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
     const existing = khataList.find((e) => e.phone === duePhone);
     const amount = Number.parseFloat(dueAmount);
     if (existing) {
+      const newDue = (existing.totalDue || 0) + amount;
       const updated = khataList.map((e) =>
-        e.phone === duePhone
-          ? { ...e, totalDue: (e.totalDue || 0) + amount }
-          : e,
+        e.phone === duePhone ? { ...e, totalDue: newDue } : e,
       );
       setKhataList(updated);
-      storageSet(STORAGE_KEYS.khata, updated);
+      await fsUpdateDoc("khata", existing.phone, { totalDue: newDue });
     } else {
       const newEntry = {
-        id: BigInt(Date.now()),
         phone: duePhone,
         customerName: dueName || duePhone,
         name: dueName || duePhone,
         totalDue: amount,
-        createdAt: BigInt(Date.now()),
-        lastUpdated: BigInt(Date.now()),
+        createdAt: Date.now(),
+        lastUpdated: Date.now(),
       };
-      const updated = storageAddItem(STORAGE_KEYS.khata, newEntry);
-      setKhataList(updated as unknown as KhataEntry[]);
+      const newId = await fsAddDoc("khata", newEntry);
+      setKhataList((prev) => [
+        ...prev,
+        { ...newEntry, id: newId } as unknown as KhataEntry,
+      ]);
     }
     toast.success("Due added!");
     setDuePhone("");
@@ -2234,20 +2256,22 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
     setSaving(false);
   }
 
-  function handleClearDue() {
+  async function handleClearDue() {
     if (!clearPhone || !clearAmount) {
       toast.error("Phone and amount required.");
       return;
     }
     setSaving(true);
     const clearAmt = Number.parseFloat(clearAmount);
+    const target = khataList.find((e) => e.phone === clearPhone);
+    const newDue = Math.max(0, (target?.totalDue || 0) - clearAmt);
     const updated = khataList.map((e) =>
-      e.phone === clearPhone
-        ? { ...e, totalDue: Math.max(0, (e.totalDue || 0) - clearAmt) }
-        : e,
+      e.phone === clearPhone ? { ...e, totalDue: newDue } : e,
     );
     setKhataList(updated);
-    storageSet(STORAGE_KEYS.khata, updated);
+    if (target) {
+      await fsUpdateDoc("khata", target.phone, { totalDue: newDue });
+    }
     const newBal = Math.max(
       0,
       (khataList.find((e) => e.phone === clearPhone)?.totalDue || 0) - clearAmt,

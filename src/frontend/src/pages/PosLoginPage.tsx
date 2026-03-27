@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { fsGetCollection } from "@/utils/firestoreService";
 import { Link, useNavigate } from "@/utils/router";
 import { ArrowLeft, Loader2, Lock, Phone } from "lucide-react";
 import { useState } from "react";
@@ -23,13 +24,12 @@ export default function PosLoginPage() {
     setLoading(true);
     setError("");
     try {
-      const raw = localStorage.getItem("clikmate_staff_members");
-      const staffList: Array<{
+      const staffList = await fsGetCollection<{
+        id?: string;
         mobile: string;
         pin: string;
         name?: string;
-        id?: string;
-      }> = raw ? JSON.parse(raw) : [];
+      }>("users");
       const matched = staffList.find(
         (s) => s.mobile === mobile && s.pin === pin,
       );

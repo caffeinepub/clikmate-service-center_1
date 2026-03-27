@@ -26,10 +26,23 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  fsAddDoc,
+  fsDeleteDoc,
+  fsGetCollection,
+  fsGetSettings,
+  fsSetDoc,
+  fsSetSettings,
+  fsSubscribeCollection,
+  fsUpdateDoc,
+} from "@/utils/firestoreService";
+import { runCloudMigration } from "@/utils/migrationUtils";
 import { Link } from "@/utils/router";
 import {
+  type CategoryEntry,
   STORAGE_KEYS,
   generateProductId,
+  getCategories,
   storageAddItem,
   storageGet,
   storageRemoveItem,
@@ -96,25 +109,7 @@ import { toast } from "sonner";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CATEGORIES = [
-  "CSC & Govt Services",
-  "Govt Service",
-  "Printing",
-  "Smart Card",
-  "Resume Service",
-  "Tech Gadget",
-  "Stationery",
-  "Retail Product",
-];
-
 const _STOCK_STATUSES = ["In Stock", "Out of Stock", "Limited Stock"];
-const PRODUCT_CATEGORIES = ["Retail Accessories"];
-const SERVICE_CATEGORIES = [
-  "Printing & Document",
-  "CSC & Govt Forms",
-  "Typing",
-  "Misc",
-];
 
 const CATEGORY_COLORS: Record<string, string> = {
   "CSC & Govt Services":
@@ -583,6 +578,10 @@ function ItemFormModal({
 }) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const _cats = getCategories();
+  const serviceCategories = _cats
+    .filter((c) => c.appliesTo === "service")
+    .map((c) => c.name);
 
   useEffect(() => {
     if (open) {
@@ -680,7 +679,11 @@ function ItemFormModal({
               ? Number.parseInt(form.alertBefore || form.reorderLevel) || 5
               : undefined,
         };
-        storageUpdateItem(STORAGE_KEYS.catalog, editItem.id, updatedItem);
+        await fsUpdateDoc(
+          "catalog",
+          String(editItem.productId || editItem.id),
+          updatedItem,
+        );
         toast.success("Item updated!");
         onSaved();
       } else {
@@ -719,13 +722,10 @@ function ItemFormModal({
               ? Number.parseInt(form.reorderLevel) || 5
               : undefined,
         };
-        const existingForId = storageGet<CatalogItem[]>(
-          STORAGE_KEYS.catalog,
-          [],
-        );
-        const productId = generateProductId(existingForId);
+        const existingItems = await fsGetCollection<any>("catalog");
+        const productId = generateProductId(existingItems);
         const newItemWithId = { ...newItem, productId };
-        storageAddItem(STORAGE_KEYS.catalog, newItemWithId);
+        await fsSetDoc("catalog", productId, newItemWithId);
         if (onItemAdded) onItemAdded(newItemWithId);
         toast.success("Item Added Successfully");
       }
@@ -847,7 +847,7 @@ function ItemFormModal({
                   setForm((p) => ({ ...p, category: e.target.value }))
                 }
               >
-                {CATEGORIES.map((c) => (
+                {serviceCategories.map((c) => (
                   <option key={c} value={c} style={{ background: "#1a2236" }}>
                     {c}
                   </option>
@@ -1413,9 +1413,13 @@ function ProductFormModal({
   onSaved: () => void;
   onItemAdded?: (item: CatalogItem) => void;
 }) {
+  const _prodCats = getCategories();
+  const productCategories = _prodCats
+    .filter((c) => c.appliesTo === "product")
+    .map((c) => c.name);
   const [form, setForm] = useState({
     name: "",
-    category: "Retail Accessories",
+    category: productCategories[0] || "Stationery",
     saleRate: "",
     purchaseRate: "",
     quantity: "",
@@ -1464,17 +1468,14 @@ function ProductFormModal({
         quantity: Number.parseInt(form.quantity) || 0,
         reorderLevel: Number.parseInt(form.reorderLevel) || 5,
       };
-      const existingForId2 = storageGet<CatalogItem[]>(
-        STORAGE_KEYS.catalog,
-        [],
-      );
-      const productId2 = generateProductId(existingForId2);
+      const existingItems2 = await fsGetCollection<any>("catalog");
+      const productId2 = generateProductId(existingItems2);
       const newItemWithId2 = {
         ...newItem,
         productId: productId2,
         alertBefore: Number.parseInt(form.reorderLevel) || 5,
       };
-      storageAddItem(STORAGE_KEYS.catalog, newItemWithId2);
+      await fsSetDoc("catalog", productId2, newItemWithId2);
       if (onItemAdded) onItemAdded(newItemWithId2);
       toast.success("Product Added Successfully");
       onClose();
@@ -1586,7 +1587,7 @@ function ProductFormModal({
                 setForm((p) => ({ ...p, category: e.target.value }))
               }
             >
-              {PRODUCT_CATEGORIES.map((c) => (
+              {productCategories.map((c) => (
                 <option key={c} value={c} style={{ background: "#1a2236" }}>
                   {c}
                 </option>
@@ -1727,9 +1728,13 @@ function ServiceFormModal({
   onSaved: () => void;
   onItemAdded?: (item: CatalogItem) => void;
 }) {
+  const _svcCats = getCategories();
+  const serviceCategories2 = _svcCats
+    .filter((c) => c.appliesTo === "service")
+    .map((c) => c.name);
   const [form, setForm] = useState({
     name: "",
-    category: "Printing & Document",
+    category: serviceCategories2[0] || "Printing & Scan",
     saleRate: "",
     description: "",
     requiredDocuments: "",
@@ -1775,8 +1780,11 @@ function ServiceFormModal({
         saleRate: sr,
         purchaseRate: 0,
       };
-      storageAddItem(STORAGE_KEYS.catalog, newItem);
-      if (onItemAdded) onItemAdded(newItem);
+      const existingItems3 = await fsGetCollection<any>("catalog");
+      const svcProductId = generateProductId(existingItems3);
+      const newItemWithId3 = { ...newItem, productId: svcProductId };
+      await fsSetDoc("catalog", svcProductId, newItemWithId3);
+      if (onItemAdded) onItemAdded(newItemWithId3);
       toast.success("Service Added Successfully");
       onClose();
     } catch (err) {
@@ -1887,7 +1895,7 @@ function ServiceFormModal({
                 setForm((p) => ({ ...p, category: e.target.value }))
               }
             >
-              {SERVICE_CATEGORIES.map((c) => (
+              {serviceCategories2.map((c) => (
                 <option key={c} value={c} style={{ background: "#1a2236" }}>
                   {c}
                 </option>
@@ -2055,6 +2063,340 @@ function ServiceFormModal({
 
 // ─── Catalog Section ──────────────────────────────────────────────────────────
 
+// ─── Manage Categories Modal ──────────────────────────────────────────────────
+function ManageCategoriesModal({
+  open,
+  onClose,
+  categories,
+  onCategoriesChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  categories: CategoryEntry[];
+  onCategoriesChange: (cats: CategoryEntry[]) => void;
+}) {
+  const [newName, setNewName] = React.useState("");
+  const [newType, setNewType] = React.useState<"product" | "service">(
+    "product",
+  );
+  const [editId, setEditId] = React.useState<string | null>(null);
+  const [editName, setEditName] = React.useState("");
+
+  if (!open) return null;
+
+  const save = async (updated: CategoryEntry[]) => {
+    onCategoriesChange(updated);
+    // Sync categories to Firestore
+    for (const cat of updated) {
+      await fsSetDoc("categories", cat.id, cat);
+    }
+  };
+
+  const addCategory = () => {
+    if (!newName.trim()) return;
+    const id = `cat-${Date.now()}`;
+    const newCat: CategoryEntry = {
+      id,
+      name: newName.trim(),
+      appliesTo: newType,
+    };
+    save([...categories, newCat]);
+    setNewName("");
+  };
+
+  const deleteCategory = (id: string) =>
+    save(categories.filter((c) => c.id !== id));
+
+  const startEdit = (cat: CategoryEntry) => {
+    setEditId(cat.id);
+    setEditName(cat.name);
+  };
+  const saveEdit = () => {
+    if (!editName.trim()) return;
+    save(
+      categories.map((c) =>
+        c.id === editId ? { ...c, name: editName.trim() } : c,
+      ),
+    );
+    setEditId(null);
+  };
+
+  const productCats = categories.filter((c) => c.appliesTo === "product");
+  const serviceCats = categories.filter((c) => c.appliesTo === "service");
+
+  const overlay: React.CSSProperties = {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9999,
+    background: "rgba(0,0,0,0.7)",
+    backdropFilter: "blur(4px)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  };
+  const box: React.CSSProperties = {
+    background: "rgba(13,26,50,0.97)",
+    border: "1px solid rgba(0,255,255,0.2)",
+    borderRadius: 16,
+    backdropFilter: "blur(20px)",
+    boxShadow: "0 0 60px rgba(0,255,255,0.15)",
+    width: "100%",
+    maxWidth: 520,
+    maxHeight: "85vh",
+    overflowY: "auto",
+    padding: 28,
+  };
+
+  const renderCatList = (cats: CategoryEntry[]) =>
+    cats.map((cat) => (
+      <div
+        key={cat.id}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 12px",
+          borderRadius: 8,
+          background: "rgba(255,255,255,0.04)",
+          marginBottom: 4,
+        }}
+      >
+        {editId === cat.id ? (
+          <>
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveEdit()}
+              style={{
+                flex: 1,
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid rgba(0,255,255,0.3)",
+                background: "rgba(0,255,255,0.05)",
+                color: "#fff",
+                fontSize: 13,
+              }}
+            />
+            <button
+              type="button"
+              onClick={saveEdit}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                background: "#059669",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditId(null)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.1)",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <span
+              style={{ flex: 1, color: "rgba(255,255,255,0.85)", fontSize: 14 }}
+            >
+              {cat.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => startEdit(cat)}
+              data-ocid="admin.category.edit_button"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                background: "rgba(0,255,255,0.1)",
+                color: "#00ffff",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => deleteCategory(cat.id)}
+              data-ocid="admin.category.delete_button"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                background: "rgba(255,80,80,0.15)",
+                color: "#ff5050",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              Delete
+            </button>
+          </>
+        )}
+      </div>
+    ));
+
+  return (
+    <div
+      style={overlay}
+      onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+      role="presentation"
+    >
+      <dialog
+        open
+        style={box}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 20,
+          }}
+        >
+          <h2 style={{ color: "#00ffff", fontSize: 18, fontWeight: 700 }}>
+            Manage Categories
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255,255,255,0.5)",
+              cursor: "pointer",
+              fontSize: 22,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Add new */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+          <input
+            data-ocid="admin.category.input"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="New category name..."
+            onKeyDown={(e) => e.key === "Enter" && addCategory()}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid rgba(0,255,255,0.2)",
+              background: "rgba(255,255,255,0.06)",
+              color: "#fff",
+              fontSize: 13,
+            }}
+          />
+          <select
+            data-ocid="admin.category.select"
+            value={newType}
+            onChange={(e) =>
+              setNewType(e.target.value as "product" | "service")
+            }
+            style={{
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid rgba(0,255,255,0.2)",
+              background: "#0d1a2e",
+              color: "#fff",
+              fontSize: 13,
+            }}
+          >
+            <option value="product">Product</option>
+            <option value="service">Service</option>
+          </select>
+          <button
+            type="button"
+            data-ocid="admin.category.primary_button"
+            onClick={addCategory}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 8,
+              background: "linear-gradient(135deg,#00ffff,#0080ff)",
+              color: "#080d1a",
+              fontWeight: 700,
+              border: "none",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            + Add
+          </button>
+        </div>
+
+        {/* Product categories */}
+        <div style={{ marginBottom: 20 }}>
+          <div
+            style={{
+              color: "#a78bfa",
+              fontWeight: 600,
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              marginBottom: 8,
+            }}
+          >
+            Product Categories
+          </div>
+          {productCats.length === 0 && (
+            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+              No product categories yet.
+            </p>
+          )}
+          {renderCatList(productCats)}
+        </div>
+
+        {/* Service categories */}
+        <div>
+          <div
+            style={{
+              color: "#06b6d4",
+              fontWeight: 600,
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              marginBottom: 8,
+            }}
+          >
+            Service Categories
+          </div>
+          {serviceCats.length === 0 && (
+            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+              No service categories yet.
+            </p>
+          )}
+          {renderCatList(serviceCats)}
+        </div>
+      </dialog>
+    </div>
+  );
+}
+
 function CatalogSection({
   items,
   loading,
@@ -2078,12 +2420,25 @@ function CatalogSection({
     "services",
   );
 
-  const SERVICE_CAT_LIST = [
-    "Printing & Document",
-    "CSC & Govt Forms",
-    "Typing",
-    "Misc",
-  ];
+  const [categories, setCategories] = React.useState<CategoryEntry[]>(() =>
+    getCategories(),
+  );
+  const [showManageCategories, setShowManageCategories] = React.useState(false);
+
+  React.useEffect(() => {
+    const handler = () => setCategories(getCategories());
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
+
+  const _productCategoriesUnused = categories
+    .filter((c) => c.appliesTo === "product")
+    .map((c) => c.name);
+  const serviceCategories = categories
+    .filter((c) => c.appliesTo === "service")
+    .map((c) => c.name);
+
+  const SERVICE_CAT_LIST = serviceCategories;
   const tabFiltered = items.filter((item) =>
     catalogTab === "services"
       ? SERVICE_CAT_LIST.includes(item.category)
@@ -2095,9 +2450,9 @@ function CatalogSection({
       item.category.toLowerCase().includes(search.toLowerCase()),
   );
 
-  function handleTogglePublish(item: CatalogItem) {
+  async function handleTogglePublish(item: CatalogItem) {
     setTogglingId(item.id);
-    storageUpdateItem(STORAGE_KEYS.catalog, item.id, {
+    await fsUpdateDoc("catalog", String(item.productId || item.id), {
       published: !item.published,
     });
     onRefresh();
@@ -2105,10 +2460,13 @@ function CatalogSection({
     setTogglingId(null);
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!deleteTarget) return;
     setDeletingId(deleteTarget.id);
-    storageRemoveItem(STORAGE_KEYS.catalog, deleteTarget.id);
+    await fsDeleteDoc(
+      "catalog",
+      String(deleteTarget.productId || deleteTarget.id),
+    );
     onRefresh();
     toast.success("Item deleted.");
     setDeleteOpen(false);
@@ -2118,10 +2476,19 @@ function CatalogSection({
 
   const published = items.filter((i) => i.published).length;
   const hidden = items.filter((i) => !i.published).length;
-  const categories = new Set(items.map((i) => i.category)).size;
+  const categoriesCount = new Set(items.map((i) => i.category)).size;
 
   return (
     <div style={{ padding: 24 }}>
+      {/* Manage Categories Modal */}
+      <ManageCategoriesModal
+        open={showManageCategories}
+        onClose={() => setShowManageCategories(false)}
+        categories={categories}
+        onCategoriesChange={(cats) => {
+          setCategories(cats);
+        }}
+      />
       {/* Stats */}
       <div
         style={{
@@ -2151,7 +2518,7 @@ function CatalogSection({
         />
         <StatsCard
           label="Categories"
-          value={categories}
+          value={categoriesCount}
           iconColor="#3b82f6"
           icon={LayoutDashboard}
         />
@@ -2332,6 +2699,27 @@ function CatalogSection({
             }}
           >
             <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> Add Service
+          </button>
+          <button
+            type="button"
+            data-ocid="admin.catalog.open_modal_button"
+            onClick={() => setShowManageCategories(true)}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 10,
+              border: "1px solid rgba(0,255,255,0.3)",
+              background: "rgba(0,255,255,0.08)",
+              color: "#00ffff",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Settings style={{ width: 16, height: 16 }} /> Manage Categories
           </button>
         </div>
       </div>
@@ -3027,17 +3415,23 @@ function OrdersSection() {
   const [updatingOrderId, setUpdatingOrderId] = useState<bigint | null>(null);
 
   useEffect(() => {
-    const orders = storageGet<OrderRecord[]>(STORAGE_KEYS.orders, []);
-    setOrders(orders);
-    setLoading(false);
+    fsGetCollection<any>("orders")
+      .then((orders) => {
+        setOrders(orders);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
-  function handlePrintOrderStatusChange(orderId: bigint, newStatus: string) {
+  async function handlePrintOrderStatusChange(
+    orderId: bigint,
+    newStatus: string,
+  ) {
     setUpdatingOrderId(orderId);
     setOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o)),
     );
-    storageUpdateItem(STORAGE_KEYS.orders, orderId, { status: newStatus });
+    await fsUpdateDoc("orders", String(orderId), { status: newStatus });
     toast.success("Status updated");
     setUpdatingOrderId(null);
   }
@@ -3272,10 +3666,12 @@ function OrdersSection() {
 // ─── Live Dashboard Section ───────────────────────────────────────────────────
 
 function StaffPerformanceChart() {
-  const staffRaw = localStorage.getItem("clikmate_staff_members");
-  const staffList: { name: string; role: string }[] = staffRaw
-    ? JSON.parse(staffRaw)
-    : [];
+  const [staffList, setStaffList] = React.useState<
+    { name: string; role: string }[]
+  >([]);
+  React.useEffect(() => {
+    fsGetCollection<any>("users").then(setStaffList).catch(console.error);
+  }, []);
 
   // Always show at least mock data for Ashu and Rahul
   const mockFallback = [
@@ -3373,16 +3769,17 @@ function LiveOperationalDashboard() {
     paymentMode: "Cash",
   });
 
-  const loadOrders = () => {
+  const loadOrders = async () => {
     try {
       setLoading(true);
       const todayStr = new Date().toISOString().split("T")[0];
-      const all = storageGet<ShopOrder[]>(STORAGE_KEYS.orders, []);
-      const exp = storageGet<ExpenseEntry[]>(STORAGE_KEYS.expenses, []);
-      const inc = storageGet<ManualIncomeEntry[]>(
-        STORAGE_KEYS.manualIncomes,
-        [],
-      );
+      const [all, exp, inc] = await Promise.all([
+        fsGetCollection<any>("orders"),
+        Promise.resolve(storageGet<ExpenseEntry[]>(STORAGE_KEYS.expenses, [])),
+        Promise.resolve(
+          storageGet<ManualIncomeEntry[]>(STORAGE_KEYS.manualIncomes, []),
+        ),
+      ]);
       const sorted = [...all].sort(
         (a, b) => Number(b.createdAt) - Number(a.createdAt),
       );
@@ -3525,7 +3922,7 @@ function LiveOperationalDashboard() {
       newStatus = "Out for Delivery";
     else return;
 
-    storageUpdateItem(STORAGE_KEYS.orders, order.id, { status: newStatus });
+    await fsUpdateDoc("orders", String(order.id), { status: newStatus });
     loadOrders();
   };
 
@@ -5633,17 +6030,11 @@ function AttendanceReportSection() {
 
   React.useEffect(() => {
     function readLog() {
-      try {
-        setLog(
-          JSON.parse(localStorage.getItem("clikmate_clock_in_log") || "[]"),
-        );
-      } catch {
-        setLog([]);
-      }
+      fsGetCollection("attendance")
+        .then((logs: any[]) => setLog(logs))
+        .catch(() => setLog([]));
     }
     readLog();
-    window.addEventListener("storage", readLog);
-    return () => window.removeEventListener("storage", readLog);
   }, []);
 
   function exportAttendanceCSV() {
@@ -5865,12 +6256,15 @@ function OrderHistorySection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const allOrders = storageGet<ShopOrder[]>(STORAGE_KEYS.orders, []);
-    const completed = allOrders
-      .filter((o) => ["Delivered", "Cancelled"].includes(o.status))
-      .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
-    setOrders(completed);
-    setLoading(false);
+    fsGetCollection<any>("orders")
+      .then((allOrders) => {
+        const completed = allOrders
+          .filter((o) => ["Delivered", "Cancelled"].includes(o.status))
+          .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
+        setOrders(completed);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -6529,14 +6923,8 @@ function ChangePasswordForm() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  function handleUpdate() {
+  async function handleUpdate() {
     setError("");
-    const stored =
-      localStorage.getItem("clikmate_admin_password") || "admin123";
-    if (currentPw !== stored) {
-      setError("Current password is incorrect.");
-      return;
-    }
     if (newPw.length < 6) {
       setError("New password must be at least 6 characters.");
       return;
@@ -6546,14 +6934,30 @@ function ChangePasswordForm() {
       return;
     }
     setSaving(true);
-    setTimeout(() => {
-      localStorage.setItem("clikmate_admin_password", newPw);
+    try {
+      const adminAuth = await fsGetSettings<{
+        email: string;
+        password: string;
+      }>("adminAuth");
+      const storedPassword = adminAuth?.password || "admin123";
+      if (currentPw !== storedPassword) {
+        setError("Current password is incorrect.");
+        setSaving(false);
+        return;
+      }
+      await fsSetSettings("adminAuth", {
+        ...(adminAuth || {}),
+        password: newPw,
+      });
       toast.success("Password updated successfully!");
       setCurrentPw("");
       setNewPw("");
       setConfirmPw("");
+    } catch {
+      toast.error("Failed to update password.");
+    } finally {
       setSaving(false);
-    }, 300);
+    }
   }
 
   const inputStyle: React.CSSProperties = {
@@ -6673,12 +7077,22 @@ function ChangePasswordForm() {
 function SettingsSection() {
   const actor = null;
   const [ipWhitelist, setIpWhitelist] = useState(false);
-  const [waBotEnabled, setWaBotEnabled] = useState(
-    () => localStorage.getItem("clikmate_whatsapp_bot_enabled") === "true",
-  );
-  const [waRateTemplate, setWaRateTemplate] = useState(
-    () => localStorage.getItem("clikmate_whatsapp_rate_template") || "",
-  );
+  const [waBotEnabled, setWaBotEnabled] = useState(false);
+  const [waRateTemplate, setWaRateTemplate] = useState("");
+
+  useEffect(() => {
+    fsGetSettings<{
+      whatsappBotEnabled: boolean;
+      whatsappRateTemplate: string;
+    }>("appConfig")
+      .then((cfg) => {
+        if (cfg) {
+          setWaBotEnabled(cfg.whatsappBotEnabled ?? false);
+          setWaRateTemplate(cfg.whatsappRateTemplate ?? "");
+        }
+      })
+      .catch(console.error);
+  }, []);
   const [upiId, setUpiId] = useState("");
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [saving, setSaving] = useState(false);
@@ -7227,19 +7641,19 @@ function SettingsSection() {
               onClick={() => {
                 const val = !waBotEnabled;
                 setWaBotEnabled(val);
-                localStorage.setItem(
-                  "clikmate_whatsapp_bot_enabled",
-                  String(val),
-                );
+                fsSetSettings("appConfig", {
+                  whatsappBotEnabled: val,
+                  whatsappRateTemplate: waRateTemplate,
+                }).catch(console.error);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   const val = !waBotEnabled;
                   setWaBotEnabled(val);
-                  localStorage.setItem(
-                    "clikmate_whatsapp_bot_enabled",
-                    String(val),
-                  );
+                  fsSetSettings("appConfig", {
+                    whatsappBotEnabled: val,
+                    whatsappRateTemplate: waRateTemplate,
+                  }).catch(console.error);
                 }
               }}
               style={{
@@ -7293,10 +7707,10 @@ function SettingsSection() {
               value={waRateTemplate}
               onChange={(e) => setWaRateTemplate(e.target.value)}
               onBlur={() =>
-                localStorage.setItem(
-                  "clikmate_whatsapp_rate_template",
-                  waRateTemplate,
-                )
+                fsSetSettings("appConfig", {
+                  whatsappBotEnabled: waBotEnabled,
+                  whatsappRateTemplate: waRateTemplate,
+                }).catch(console.error)
               }
               placeholder="Hi! Our rates: Printing ₹2/page, Lamination ₹10, Smart Card ₹150, ID Card ₹80, Xerox ₹1/page..."
               rows={4}
@@ -7329,6 +7743,206 @@ function SettingsSection() {
       </div>
 
       <BrandSettingsCard />
+      <SyncToCloudCard />
+    </div>
+  );
+}
+
+// ─── Sync To Cloud Card ────────────────────────────────────────────────────────
+function SyncToCloudCard() {
+  const [migrating, setMigrating] = React.useState(false);
+  const [result, setResult] = React.useState<{
+    success: boolean;
+    counts: Record<string, number>;
+    errors: string[];
+  } | null>(null);
+  const [showConfirm, setShowConfirm] = React.useState(false);
+
+  async function handleMigrate() {
+    setMigrating(true);
+    setResult(null);
+    try {
+      const res = await runCloudMigration();
+      setResult(res);
+      if (res.success) {
+        toast.success("✅ Data synced to cloud successfully!");
+      } else {
+        toast.error("Migration completed with some errors.");
+      }
+    } catch (e) {
+      toast.error(`Migration failed: ${String(e)}`);
+    } finally {
+      setMigrating(false);
+      setShowConfirm(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        margin: "24px 0",
+        background: "rgba(6,182,212,0.06)",
+        border: "1px solid rgba(6,182,212,0.25)",
+        borderRadius: 14,
+        padding: "20px 24px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: "linear-gradient(135deg,#06b6d4,#0ea5e9)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 18,
+          }}
+        >
+          ☁
+        </div>
+        <div>
+          <div style={{ color: "white", fontWeight: 700, fontSize: 15 }}>
+            Sync to Cloud
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>
+            One-time migration: uploads all localStorage data to Firebase
+            Firestore
+          </div>
+        </div>
+      </div>
+
+      {!showConfirm && !result && (
+        <button
+          type="button"
+          data-ocid="admin.settings.sync_to_cloud.primary_button"
+          onClick={() => setShowConfirm(true)}
+          style={{
+            background: "linear-gradient(135deg,#06b6d4,#0ea5e9)",
+            color: "white",
+            border: "none",
+            borderRadius: 10,
+            padding: "10px 20px",
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: "pointer",
+          }}
+        >
+          ☁ Sync to Cloud
+        </button>
+      )}
+
+      {showConfirm && !migrating && (
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }}>
+            This will write all local data to Firestore and clear localStorage.
+            Continue?
+          </span>
+          <button
+            type="button"
+            data-ocid="admin.settings.sync_confirm.confirm_button"
+            onClick={handleMigrate}
+            style={{
+              background: "#10b981",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 16px",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Yes, Sync Now
+          </button>
+          <button
+            type="button"
+            data-ocid="admin.settings.sync_confirm.cancel_button"
+            onClick={() => setShowConfirm(false)}
+            style={{
+              background: "rgba(255,255,255,0.1)",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 16px",
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {migrating && (
+        <div
+          data-ocid="admin.settings.sync.loading_state"
+          style={{
+            color: "#06b6d4",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span
+            style={{
+              animation: "spin 1s linear infinite",
+              display: "inline-block",
+            }}
+          >
+            ⟳
+          </span>
+          Migrating data to Firestore...
+        </div>
+      )}
+
+      {result && (
+        <div
+          data-ocid={
+            result.success
+              ? "admin.settings.sync.success_state"
+              : "admin.settings.sync.error_state"
+          }
+          style={{
+            background: result.success
+              ? "rgba(16,185,129,0.1)"
+              : "rgba(239,68,68,0.1)",
+            border: `1px solid ${result.success ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`,
+            borderRadius: 10,
+            padding: "12px 16px",
+          }}
+        >
+          <div
+            style={{
+              color: result.success ? "#10b981" : "#ef4444",
+              fontWeight: 700,
+              marginBottom: 6,
+            }}
+          >
+            {result.success
+              ? "✅ Migration Complete!"
+              : "⚠ Migration Completed with Errors"}
+          </div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+            {Object.entries(result.counts).map(([key, count]) => (
+              <div key={key}>
+                ✓ {key}: {count} records
+              </div>
+            ))}
+          </div>
+          {result.errors.length > 0 && (
+            <div style={{ marginTop: 8, color: "#fca5a5", fontSize: 12 }}>
+              Errors: {result.errors.join(", ")}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -7572,23 +8186,40 @@ function BrandSettingsCard() {
 
 // ─── Admin Login Screen ──────────────────────────────────────────────────────
 function AdminLoginScreen({ onSuccess }: { onSuccess: () => void }) {
-  // Initialize default credentials if not set
-  if (!localStorage.getItem("clikmate_admin_email")) {
-    localStorage.setItem("clikmate_admin_email", "admin@clikmate.com");
-  }
-  if (!localStorage.getItem("clikmate_admin_password")) {
-    localStorage.setItem("clikmate_admin_password", "admin123");
-  }
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function handleLogin() {
+  async function handleLogin() {
     setError("");
     setLoading(true);
-    setTimeout(() => {
+    try {
+      // Check master key first
+      if (password === "CLIKMATE-ADMIN-2024") {
+        localStorage.setItem("clikmate_admin_session", "1");
+        onSuccess();
+        return;
+      }
+      // Check Firestore credentials
+      const adminAuth = await fsGetSettings<{
+        email: string;
+        password: string;
+      }>("adminAuth");
+      const storedEmail = adminAuth?.email || "admin@clikmate.com";
+      const storedPassword = adminAuth?.password || "admin123";
+      if (
+        email.trim().toLowerCase() === storedEmail.toLowerCase() &&
+        password === storedPassword
+      ) {
+        localStorage.setItem("clikmate_admin_session", "1");
+        onSuccess();
+      } else {
+        setError("Invalid email or password.");
+        setLoading(false);
+      }
+    } catch {
+      // Fallback to localStorage credentials
       const storedEmail =
         localStorage.getItem("clikmate_admin_email") || "admin@clikmate.com";
       const storedPassword =
@@ -7601,9 +8232,9 @@ function AdminLoginScreen({ onSuccess }: { onSuccess: () => void }) {
         onSuccess();
       } else {
         setError("Invalid email or password.");
-        setLoading(false);
       }
-    }, 400);
+      setLoading(false);
+    }
   }
 
   return (
@@ -8325,20 +8956,14 @@ function DailyAttendanceTab({
 function TeamAccessSection() {
   const [members, setMembers] = useState<
     Array<{
+      id?: string;
       name: string;
       mobile: string;
       pin: string;
       role: string;
       baseSalary: number;
     }>
-  >(() => {
-    try {
-      const s = localStorage.getItem("clikmate_staff_members");
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  >([]);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
@@ -8414,9 +9039,12 @@ function TeamAccessSection() {
 
   function loadMembers() {
     setLoading(true);
-    const list = storageGet<(typeof members)[0][]>(STORAGE_KEYS.staff, []);
-    if (list.length > 0) setMembers(list);
-    setLoading(false);
+    fsGetCollection<(typeof members)[0]>("users")
+      .then((list) => {
+        setMembers(list);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }
 
   async function loadStaffLedgers(
@@ -8477,10 +9105,7 @@ function TeamAccessSection() {
     }
   }, [members]);
 
-  // Persist members to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem("clikmate_staff_members", JSON.stringify(members));
-  }, [members]);
+  // Members persisted via Firestore - no localStorage persist needed
 
   // Recompute salary due when ledger map updates
   // biome-ignore lint/correctness/useExhaustiveDependencies: stable ref
@@ -8524,14 +9149,14 @@ function TeamAccessSection() {
     setBaseSalary("");
     toast.success(`Team member "${savedName}" added successfully.`);
 
-    // 3. Persist to localStorage
-    storageAddItem(STORAGE_KEYS.staff, optimistic);
+    // 3. Persist to Firestore
+    fsSetDoc("users", optimistic.mobile, optimistic).catch(console.error);
   }
 
   function handleRemoveMember(memberMobile: string) {
     setRemoving(memberMobile);
     setMembers((prev) => prev.filter((m) => m.mobile !== memberMobile));
-    storageRemoveItem(STORAGE_KEYS.staff, memberMobile);
+    fsDeleteDoc("users", memberMobile).catch(console.error);
     toast.success("Team member removed.");
     setRemoving(null);
   }
@@ -8548,9 +9173,9 @@ function TeamAccessSection() {
         m.mobile === resetPinTarget.mobile ? { ...m, pin: newPin } : m,
       ),
     );
-    storageUpdateItem(STORAGE_KEYS.staff, resetPinTarget.mobile, {
-      pin: newPin,
-    });
+    fsUpdateDoc("users", resetPinTarget.mobile, { pin: newPin }).catch(
+      console.error,
+    );
     toast.success("PIN updated successfully.");
     setResetPinTarget(null);
     setNewPin("");
@@ -8563,7 +9188,9 @@ function TeamAccessSection() {
         m.mobile === memberMobile ? { ...m, active: isActive } : m,
       ),
     );
-    storageUpdateItem(STORAGE_KEYS.staff, memberMobile, { active: isActive });
+    fsUpdateDoc("users", memberMobile, { active: isActive }).catch(
+      console.error,
+    );
     toast.success(isActive ? "Member activated." : "Member deactivated.");
   }
 
@@ -14387,9 +15014,6 @@ function DeliveryDispatchSection() {
 }
 
 export default function AdminDashboard() {
-  const isFetching = false;
-  // biome-ignore lint/correctness/noUnusedVariables: actor transitional - fully replaced by localStorage
-  const actor = null;
   const [isAdmin, setIsAdmin] = useState<boolean>(
     () => localStorage.getItem("clikmate_admin_session") === "1",
   );
@@ -14421,14 +15045,7 @@ export default function AdminDashboard() {
   function toggleGroup(groupId: string) {
     setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
   }
-  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>(() => {
-    try {
-      const s = localStorage.getItem("clikmate_catalog_items");
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -14442,7 +15059,7 @@ export default function AdminDashboard() {
   const isMobile = windowWidth < 768;
 
   async function seedServices() {
-    const existing = storageGet<CatalogItem[]>(STORAGE_KEYS.catalog, []);
+    const existing: CatalogItem[] = catalogItems;
     const SERVICE_CATS = [
       "Printing & Document",
       "CSC & Govt Forms",
@@ -14494,67 +15111,23 @@ export default function AdminDashboard() {
       mediaTypes: [],
     }));
 
+    // Seed default services to Firestore if catalog is empty
     const merged = [...seeded, ...existing];
-    storageSet(STORAGE_KEYS.catalog, merged);
-    // end of seeded services
-  }
-
-  function loadCatalog() {
-    const raw = storageGet<CatalogItem[]>(STORAGE_KEYS.catalog, []);
-    const SERVICE_CAT_LIST = [
-      "Printing & Document",
-      "CSC & Govt Forms",
-      "Typing",
-      "Misc",
-    ];
-    let migrated = false;
-    const items = raw.map((item) => {
-      if (item.saleRate !== undefined) return item; // already migrated
-      migrated = true;
-      return {
-        ...item,
-        saleRate: Number.parseFloat(item.price) || 0,
-        purchaseRate: 0,
-        quantity: 0,
-        reorderLevel: 5,
-        itemType: (SERVICE_CAT_LIST.includes(item.category)
-          ? "service"
-          : "product") as "product" | "service",
-      };
-    });
-    if (migrated) storageSet(STORAGE_KEYS.catalog, items);
-
-    // Migrate: assign productId to items that don't have one, ensure alertBefore
-    let needsIdMigration = false;
-    let counter = 1001;
-    const withIds = items.map((item: CatalogItem) => {
-      const hasId = !!item.productId;
-      if (!hasId) needsIdMigration = true;
-      return {
-        ...item,
-        productId: item.productId || `ITM-${counter++}`,
-        alertBefore: item.alertBefore ?? item.reorderLevel ?? 5,
-      };
-    });
-    if (needsIdMigration) storageSet(STORAGE_KEYS.catalog, withIds);
-    setCatalogItems(withIds);
-    setCatalogLoading(false);
-  }
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: loadCatalog is stable
-  useEffect(() => {
-    console.log(
-      "[AdminDashboard] Auth state changed — Auth:",
-      isAdmin,
-      "| isFetching:",
-      isFetching,
-    );
-    if (isAdmin) {
-      Promise.allSettled([seedServices()]).then(() => {
-        loadCatalog();
-      });
+    if (existing.length === 0) {
+      for (const svc of merged) {
+        const pid = `ITM-${1000 + merged.indexOf(svc)}`;
+        const withId = { ...svc, productId: pid };
+        await fsSetDoc("catalog", pid, withId);
+      }
     }
-  }, [isAdmin]);
+  }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable seed
+  useEffect(() => {
+    if (isAdmin && catalogItems.length === 0) {
+      seedServices().catch(console.error);
+    }
+  }, [isAdmin, catalogItems.length]);
 
   // Diagnostic: log whenever catalog or admin state changes
   useEffect(() => {
@@ -14572,13 +15145,14 @@ export default function AdminDashboard() {
     }
   }, [isAdmin, catalogItems]);
 
-  // Persist catalogItems to localStorage whenever they change
+  // Catalog: subscribe to Firestore onSnapshot
   useEffect(() => {
-    localStorage.setItem(
-      "clikmate_catalog_items",
-      JSON.stringify(catalogItems),
-    );
-  }, [catalogItems]);
+    const unsub = fsSubscribeCollection<any>("catalog", (items) => {
+      setCatalogItems(items);
+      setCatalogLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const navSectionLabels: Record<NavSection, string> = {
     dashboard: "Live Dashboard",
@@ -15141,7 +15715,9 @@ export default function AdminDashboard() {
             <CatalogSection
               items={catalogItems}
               loading={catalogLoading}
-              onRefresh={loadCatalog}
+              onRefresh={() => {
+                /* Firestore onSnapshot handles refresh */
+              }}
               onItemAdded={(item) => {
                 console.log("[onItemAdded] Adding item:", item.name, item.id);
                 setCatalogItems((prev) => {

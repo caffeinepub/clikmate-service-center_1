@@ -1,8 +1,8 @@
 import type { KhataEntry } from "@/backend.d";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { fsGetCollection, fsUpdateDoc } from "@/utils/firestoreService";
 import { useNavigate } from "@/utils/router";
-import { STORAGE_KEYS, storageSet } from "@/utils/storage";
 import {
   ArrowLeft,
   BookOpen,
@@ -245,14 +245,11 @@ export default function KhataSettlementPage() {
   // Search state
   const [searchMobile, setSearchMobile] = useState("");
   const [searching, setSearching] = useState(false);
-  const [allEntries, setAllEntries] = useState<KhataEntry[]>(() => {
-    try {
-      const s = localStorage.getItem("clikmate_khata_entries");
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [allEntries, setAllEntries] = useState<any[]>([]);
+
+  useEffect(() => {
+    fsGetCollection<any>("khata").then(setAllEntries).catch(console.error);
+  }, []);
   const [selectedEntry, setSelectedEntry] = useState<KhataEntry | null>(null);
   const [walletBalance, setWalletBalance] = useState(0);
 
@@ -322,7 +319,9 @@ export default function KhataSettlementPage() {
       );
       setSelectedEntry(updatedEntry);
       setAllEntries(updatedEntries);
-      storageSet(STORAGE_KEYS.khata, updatedEntries);
+      await fsUpdateDoc("khata", selectedEntry.phone, {
+        totalDue: remaining,
+      });
 
       toast.success(
         `Payment of ${formatINR(amountNow)} accepted. Pending: ${formatINR(remaining)}`,

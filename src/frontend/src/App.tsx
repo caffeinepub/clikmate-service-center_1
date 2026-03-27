@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { CartProvider, useCart } from "@/context/CartContext";
+import { fsGetCollection } from "@/utils/firestoreService";
 import { HashRouter, Link, Route, Routes, useNavigate } from "@/utils/router";
 import {
   Box as BoxIcon,
@@ -541,7 +542,6 @@ function HeroSection() {
 }
 
 // ─── Services ─────────────────────────────────────────────────────────────────
-const RETAIL_CATEGORIES = ["Tech Gadget", "Stationery", "Retail Product"];
 
 function ServiceCard({
   item,
@@ -619,8 +619,8 @@ function ServiceCard({
 
 function ServicesSection() {
   const { data: allItems, isLoading } = usePublishedCatalogItems();
-  const serviceItems = (allItems || []).filter(
-    (item) => !RETAIL_CATEGORIES.includes(item.category),
+  const servicesList = (allItems || []).filter(
+    (item) => (item.itemType || "service").toLowerCase() === "service",
   );
 
   return (
@@ -654,19 +654,24 @@ function ServicesSection() {
               <Skeleton key={n} className="h-60 w-full rounded-2xl" />
             ))}
           </div>
-        ) : serviceItems.length === 0 ? (
+        ) : servicesList.length === 0 ? (
           <div
             data-ocid="services.empty_state"
-            className="text-center py-16 text-gray-400"
+            className="text-center py-16"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "16px",
+              backdropFilter: "blur(10px)",
+            }}
           >
-            <ChevronRight className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">
-              Services will appear here once the admin adds them.
+            <p className="text-gray-400 font-medium">
+              New services launching soon!
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {serviceItems.map((item, i) => (
+            {servicesList.map((item, i) => (
               <ServiceCard key={item.id.toString()} item={item} index={i} />
             ))}
           </div>
@@ -902,8 +907,8 @@ function RetailSection() {
   const { data: allItems, isLoading } = usePublishedCatalogItems();
   const navigate = useNavigate();
   const { addToCart } = useCart();
-  const productItems = (allItems || []).filter((item) =>
-    RETAIL_CATEGORIES.includes(item.category),
+  const productsList = (allItems || []).filter(
+    (item) => (item.itemType || "service").toLowerCase() === "product",
   );
 
   return (
@@ -929,19 +934,24 @@ function RetailSection() {
               <Skeleton key={n} className="h-48 w-full rounded-2xl" />
             ))}
           </div>
-        ) : productItems.length === 0 ? (
+        ) : productsList.length === 0 ? (
           <div
             data-ocid="retail.empty_state"
-            className="text-center py-16 text-gray-400"
+            className="text-center py-16"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "16px",
+              backdropFilter: "blur(10px)",
+            }}
           >
-            <ChevronRight className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">
-              Products will appear here once the admin adds them.
+            <p className="text-gray-400 font-medium">
+              New stock arriving soon!
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {productItems.map((p, i) => (
+            {productsList.map((p, i) => (
               <div
                 key={p.id.toString()}
                 data-ocid={`retail.item.${i + 1}`}
@@ -1010,21 +1020,47 @@ function RetailSection() {
 
 // ─── Public Rate List (Customer-Facing Catalog) ──────────────────────────────
 function PublicRateListSection() {
-  const [activeTab, setActiveTab] = useState<"all" | "product" | "service">(
-    "all",
-  );
   const { data: allItems } = usePublishedCatalogItems();
+  const [productCatFilter, setProductCatFilter] = useState<string>("All");
+  const [serviceCatFilter, setServiceCatFilter] = useState<string>("All");
+  const [storedCats, setStoredCats] = useState<
+    Array<{ id: string; name: string; appliesTo: string }>
+  >([]);
 
-  // Filter items that have saleRate (new inventory model)
+  useEffect(() => {
+    fsGetCollection<{ id: string; name: string; appliesTo: string }>(
+      "categories",
+    )
+      .then(setStoredCats)
+      .catch(console.error);
+  }, []);
+
+  const productCatOptions = [
+    "All",
+    ...storedCats.filter((c) => c.appliesTo === "product").map((c) => c.name),
+  ];
+  const serviceCatOptions = [
+    "All",
+    ...storedCats.filter((c) => c.appliesTo === "service").map((c) => c.name),
+  ];
+
   const rateItems = (allItems || []).filter(
     (item) => item.saleRate !== undefined && item.saleRate !== null,
   );
 
-  const filtered = rateItems.filter((item) => {
-    if (activeTab === "all") return true;
-    const t = (item.itemType || "service").toLowerCase();
-    return activeTab === "product" ? t === "product" : t === "service";
-  });
+  const products = rateItems.filter(
+    (i) => (i.itemType || "service").toLowerCase() === "product",
+  );
+  const services = rateItems.filter(
+    (i) => (i.itemType || "service").toLowerCase() === "service",
+  );
+
+  const filteredProducts = products.filter(
+    (i) => productCatFilter === "All" || i.category === productCatFilter,
+  );
+  const filteredServices = services.filter(
+    (i) => serviceCatFilter === "All" || i.category === serviceCatFilter,
+  );
 
   const getAvailability = (
     item: ReturnType<typeof usePublishedCatalogItems>["data"][number],
@@ -1034,12 +1070,126 @@ function PublicRateListSection() {
     return "available";
   };
 
-  const products = rateItems.filter(
-    (i) => (i.itemType || "service").toLowerCase() === "product",
-  );
-  const services = rateItems.filter(
-    (i) => (i.itemType || "service").toLowerCase() === "service",
-  );
+  const activeTabStyle: React.CSSProperties = {
+    background: "linear-gradient(135deg, #00ffff, #0080ff)",
+    color: "#080d1a",
+    boxShadow: "0 0 12px rgba(0,255,255,0.35)",
+    border: "none",
+    padding: "6px 18px",
+    borderRadius: 9999,
+    fontWeight: 700,
+    fontSize: 13,
+    cursor: "pointer",
+    transition: "all 0.2s",
+  };
+  const inactiveTabStyle: React.CSSProperties = {
+    background: "rgba(255,255,255,0.06)",
+    color: "rgba(255,255,255,0.6)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    padding: "6px 18px",
+    borderRadius: 9999,
+    fontWeight: 500,
+    fontSize: 13,
+    cursor: "pointer",
+    transition: "all 0.2s",
+  };
+
+  const renderItemCard = (
+    item: ReturnType<typeof usePublishedCatalogItems>["data"][number],
+  ) => {
+    const avail = getAvailability(item);
+    const isService = (item.itemType || "service").toLowerCase() === "service";
+    return (
+      <div
+        key={String(item.id)}
+        className="rounded-2xl p-5 flex flex-col gap-3 transition-all duration-300 hover:scale-[1.02]"
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(0,255,255,0.12)",
+          backdropFilter: "blur(16px)",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <span
+            className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
+            style={
+              isService
+                ? { background: "rgba(168,85,247,0.18)", color: "#c084fc" }
+                : { background: "rgba(0,255,255,0.12)", color: "#00ffff" }
+            }
+          >
+            {isService ? (
+              <Layers className="w-3 h-3" />
+            ) : (
+              <BoxIcon className="w-3 h-3" />
+            )}
+            {isService ? "Service" : "Product"}
+          </span>
+          <span
+            className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
+            style={
+              avail === "out"
+                ? { background: "rgba(239,68,68,0.18)", color: "#f87171" }
+                : { background: "rgba(34,197,94,0.15)", color: "#4ade80" }
+            }
+          >
+            {avail === "out" ? (
+              <span>Out of Stock</span>
+            ) : (
+              <>
+                <CheckCircle2 className="w-3 h-3" /> Available
+              </>
+            )}
+          </span>
+        </div>
+        <h3
+          className="font-bold text-base leading-snug"
+          style={{ color: "rgba(255,255,255,0.92)" }}
+        >
+          {item.name}
+        </h3>
+        {item.productId && (
+          <span
+            className="text-xs font-mono tracking-wide"
+            style={{ color: "rgba(0,255,255,0.6)" }}
+          >
+            {item.productId}
+          </span>
+        )}
+        {item.description && (
+          <p
+            className="text-xs leading-relaxed line-clamp-2"
+            style={{ color: "rgba(255,255,255,0.45)" }}
+          >
+            {item.description}
+          </p>
+        )}
+        <div
+          className="mt-auto pt-3 border-t"
+          style={{ borderColor: "rgba(255,255,255,0.08)" }}
+        >
+          <span
+            className="text-2xl font-black"
+            style={{
+              background: "linear-gradient(135deg, #00ffff, #00aaff)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
+            {"₹"}
+            {Number(item.saleRate).toLocaleString("en-IN")}
+          </span>
+          <span
+            className="text-xs ml-1"
+            style={{ color: "rgba(255,255,255,0.35)" }}
+          >
+            {isService ? "/ unit" : "/ piece"}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <section
@@ -1063,8 +1213,7 @@ function PublicRateListSection() {
               border: "1px solid rgba(0,255,255,0.25)",
             }}
           >
-            <Tag className="w-3 h-3" />
-            Live Price Board
+            <Tag className="w-3 h-3" /> Live Price Board
           </span>
           <h2
             className="text-3xl md:text-4xl font-bold mb-3"
@@ -1085,171 +1234,121 @@ function PublicRateListSection() {
           </p>
         </div>
 
-        {/* Tab Filter */}
-        <div className="flex justify-center gap-3 mb-8">
-          {(["all", "product", "service"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className="px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200"
-              style={
-                activeTab === tab
-                  ? {
-                      background: "linear-gradient(135deg, #00ffff, #0080ff)",
-                      color: "#080d1a",
-                      boxShadow: "0 0 16px rgba(0,255,255,0.4)",
-                    }
-                  : {
-                      background: "rgba(255,255,255,0.06)",
-                      color: "rgba(255,255,255,0.65)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                    }
-              }
+        {/* Products Section */}
+        <div className="mb-14">
+          <h3
+            style={{
+              color: "rgba(255,255,255,0.9)",
+              fontWeight: 700,
+              fontSize: 20,
+              marginBottom: 8,
+            }}
+          >
+            Essential Tech &amp; Stationery
+          </h3>
+          <p
+            style={{
+              color: "rgba(255,255,255,0.4)",
+              fontSize: 13,
+              marginBottom: 16,
+            }}
+          >
+            Pick up everyday essentials &mdash; cables, stationery, accessories
+            and more.
+          </p>
+          {productCatOptions.length > 1 && (
+            <div className="flex flex-wrap gap-2 mb-6">
+              {productCatOptions.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setProductCatFilter(tab)}
+                  style={
+                    productCatFilter === tab ? activeTabStyle : inactiveTabStyle
+                  }
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          )}
+          {filteredProducts.length === 0 ? (
+            <div
+              className="text-center py-12 rounded-2xl"
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px dashed rgba(0,255,255,0.1)",
+                color: "rgba(255,255,255,0.3)",
+              }}
             >
-              {tab === "all"
-                ? `All (${rateItems.length})`
-                : tab === "product"
-                  ? `Products (${products.length})`
-                  : `Services (${services.length})`}
-            </button>
-          ))}
+              <BoxIcon className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">New stock arriving soon!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredProducts.map(renderItemCard)}
+            </div>
+          )}
         </div>
 
-        {/* Grid */}
-        {filtered.length === 0 ? (
-          <div
-            className="text-center py-16"
-            style={{ color: "rgba(255,255,255,0.35)" }}
+        {/* Services Section */}
+        <div>
+          <h3
+            style={{
+              color: "rgba(255,255,255,0.9)",
+              fontWeight: 700,
+              fontSize: 20,
+              marginBottom: 8,
+            }}
           >
-            <Tag className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">
-              Rate list will appear here once items are published.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filtered.map((item) => {
-              const avail = getAvailability(item);
-              const isService =
-                (item.itemType || "service").toLowerCase() === "service";
-              return (
-                <div
-                  key={String(item.id)}
-                  className="rounded-2xl p-5 flex flex-col gap-3 transition-all duration-300 hover:scale-[1.02]"
-                  style={{
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(0,255,255,0.12)",
-                    backdropFilter: "blur(16px)",
-                    boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
-                  }}
+            Digital Services
+          </h3>
+          <p
+            style={{
+              color: "rgba(255,255,255,0.4)",
+              fontSize: 13,
+              marginBottom: 16,
+            }}
+          >
+            Printing, scanning, online forms, and more &mdash; all in one place.
+          </p>
+          {serviceCatOptions.length > 1 && (
+            <div className="flex flex-wrap gap-2 mb-6">
+              {serviceCatOptions.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setServiceCatFilter(tab)}
+                  style={
+                    serviceCatFilter === tab ? activeTabStyle : inactiveTabStyle
+                  }
                 >
-                  {/* Type badge */}
-                  <div className="flex items-center justify-between">
-                    <span
-                      className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
-                      style={
-                        isService
-                          ? {
-                              background: "rgba(168,85,247,0.18)",
-                              color: "#c084fc",
-                            }
-                          : {
-                              background: "rgba(0,255,255,0.12)",
-                              color: "#00ffff",
-                            }
-                      }
-                    >
-                      {isService ? (
-                        <Layers className="w-3 h-3" />
-                      ) : (
-                        <BoxIcon className="w-3 h-3" />
-                      )}
-                      {isService ? "Service" : "Product"}
-                    </span>
-                    <span
-                      className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
-                      style={
-                        avail === "out"
-                          ? {
-                              background: "rgba(239,68,68,0.18)",
-                              color: "#f87171",
-                            }
-                          : {
-                              background: "rgba(34,197,94,0.15)",
-                              color: "#4ade80",
-                            }
-                      }
-                    >
-                      {avail === "out" ? (
-                        <>⊗ Out of Stock</>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-3 h-3" /> Available
-                        </>
-                      )}
-                    </span>
-                  </div>
+                  {tab}
+                </button>
+              ))}
+            </div>
+          )}
+          {filteredServices.length === 0 ? (
+            <div
+              className="text-center py-12 rounded-2xl"
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px dashed rgba(168,85,247,0.15)",
+                color: "rgba(255,255,255,0.3)",
+              }}
+            >
+              <Layers className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">New services launching soon!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredServices.map(renderItemCard)}
+            </div>
+          )}
+        </div>
 
-                  {/* Name */}
-                  <h3
-                    className="font-bold text-base leading-snug"
-                    style={{ color: "rgba(255,255,255,0.92)" }}
-                  >
-                    {item.name}
-                  </h3>
-
-                  {/* Product ID */}
-                  {item.productId && (
-                    <span
-                      className="text-xs font-mono tracking-wide"
-                      style={{ color: "rgba(0,255,255,0.6)" }}
-                    >
-                      {item.productId}
-                    </span>
-                  )}
-
-                  {/* Description snippet */}
-                  {item.description && (
-                    <p
-                      className="text-xs leading-relaxed line-clamp-2"
-                      style={{ color: "rgba(255,255,255,0.45)" }}
-                    >
-                      {item.description}
-                    </p>
-                  )}
-
-                  {/* Sale Rate */}
-                  <div
-                    className="mt-auto pt-3 border-t"
-                    style={{ borderColor: "rgba(255,255,255,0.08)" }}
-                  >
-                    <span
-                      className="text-2xl font-black"
-                      style={{
-                        background: "linear-gradient(135deg, #00ffff, #00aaff)",
-                        WebkitBackgroundClip: "text",
-                        WebkitTextFillColor: "transparent",
-                      }}
-                    >
-                      ₹{Number(item.saleRate).toLocaleString("en-IN")}
-                    </span>
-                    <span
-                      className="text-xs ml-1"
-                      style={{ color: "rgba(255,255,255,0.35)" }}
-                    >
-                      {isService ? "/ unit" : "/ piece"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Footer note */}
         <p
-          className="text-center mt-8 text-xs"
+          className="text-center mt-10 text-xs"
           style={{ color: "rgba(255,255,255,0.3)" }}
         >
           * Prices are subject to change. Contact us for bulk order discounts.

@@ -1,3 +1,8 @@
+import {
+  fsAddDoc,
+  fsGetCollection,
+  fsUpdateDoc,
+} from "@/utils/firestoreService";
 import { useNavigate } from "@/utils/router";
 import { ArrowLeft, CheckCircle, Clock, UserCheck, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +17,7 @@ interface StaffMember {
 }
 
 interface ClockInEntry {
+  id?: string;
   staffName: string;
   mobile: string;
   timestamp: string;
@@ -40,47 +46,44 @@ export default function StaffClockInPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const scanLineRef = useRef<HTMLDivElement>(null);
   const today = getTodayStr();
-  function doClockOut(entry: ClockInEntry) {
+  async function doClockOut(entry: ClockInEntry) {
+    const clockOutTime = new Date().toISOString();
     const updated = clockLog.map((e) => {
       if (
         e.staffName === entry.staffName &&
         e.date === entry.date &&
         e.timestamp === entry.timestamp
       ) {
-        return { ...e, clockOutTime: new Date().toISOString() };
+        return { ...e, clockOutTime };
       }
       return e;
     });
     setClockLog(updated);
-    localStorage.setItem("clikmate_clock_in_log", JSON.stringify(updated));
-    window.dispatchEvent(
-      new StorageEvent("storage", { key: "clikmate_clock_in_log" }),
-    );
+    try {
+      if (entry.id) {
+        await fsUpdateDoc("attendance", entry.id, { clockOutTime });
+      }
+    } catch (e) {
+      console.error("Clock-out save error:", e);
+    }
     toast.success(`✅ ${entry.staffName} clocked out!`);
   }
 
   useEffect(() => {
-    try {
-      const members = JSON.parse(
-        localStorage.getItem("clikmate_staff_members") || "[]",
-      );
-      setStaffMembers(members);
-    } catch {
-      setStaffMembers([]);
-    }
-    try {
-      const log = JSON.parse(
-        localStorage.getItem("clikmate_clock_in_log") || "[]",
-      );
-      setClockLog(log);
-    } catch {
-      setClockLog([]);
-    }
+    Promise.all([
+      fsGetCollection<StaffMember>("users"),
+      fsGetCollection<ClockInEntry>("attendance"),
+    ])
+      .then(([members, logs]) => {
+        setStaffMembers(members);
+        setClockLog(logs);
+      })
+      .catch(console.error);
   }, []);
 
   const todayLog = clockLog.filter((e) => e.date === today);
 
-  function doClockIn(member: StaffMember) {
+  async function doClockIn(member: StaffMember) {
     const entry: ClockInEntry = {
       staffName: member.name,
       mobile: member.mobile,
@@ -89,10 +92,18 @@ export default function StaffClockInPage() {
     };
     const newLog = [...clockLog, entry];
     setClockLog(newLog);
-    localStorage.setItem("clikmate_clock_in_log", JSON.stringify(newLog));
-    window.dispatchEvent(
-      new StorageEvent("storage", { key: "clikmate_clock_in_log" }),
-    );
+    try {
+      const id = await fsAddDoc("attendance", entry);
+      setClockLog((prev) =>
+        prev.map((e) =>
+          e.timestamp === entry.timestamp && e.staffName === entry.staffName
+            ? { ...e, id }
+            : e,
+        ),
+      );
+    } catch (e) {
+      console.error("Clock-in save error:", e);
+    }
     setSuccessMsg(
       `${member.name} Clocked In at ${getTimeStr(entry.timestamp)}`,
     );
