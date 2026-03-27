@@ -81,6 +81,7 @@ import StaffClockInPage from "./pages/StaffClockInPage";
 import StaffDashboard from "./pages/StaffDashboard";
 import SupportPage from "./pages/SupportPage";
 import TeamPortalPage from "./pages/TeamPortalPage";
+import UnifiedLoginPage from "./pages/UnifiedLoginPage";
 import VaultPage from "./pages/VaultPage";
 
 function smoothScroll(id: string) {
@@ -1918,6 +1919,7 @@ export default function App() {
           <Route path="/bulk-dashboard" element={<BulkDashboard />} />
           <Route path="/bulk-login" element={<BulkLoginPage />} />
           <Route path="/vault" element={<VaultPage />} />
+          <Route path="/login" element={<UnifiedLoginPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/clock-in" element={<StaffClockInPage />} />
           <Route path="/staff-dashboard" element={<StaffDashboard />} />

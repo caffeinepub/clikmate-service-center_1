@@ -48,7 +48,31 @@ export default function PosLoginPage() {
         setError("Invalid credentials. Contact admin.");
       }
     } catch {
-      setError("Login failed. Please try again.");
+      // Firestore failed — fallback to localStorage
+      try {
+        const raw = localStorage.getItem("clikmate_staff_members");
+        const localStaff: { mobile?: string; pin?: string; name?: string }[] =
+          raw ? JSON.parse(raw) : [];
+        const matched = localStaff.find(
+          (s) => s.mobile === mobile && s.pin === pin,
+        );
+        if (matched) {
+          localStorage.setItem(
+            "staffSession",
+            JSON.stringify({
+              mobile,
+              name: matched.name || mobile,
+              loggedInAt: Date.now(),
+            }),
+          );
+          toast.success("Login successful!");
+          navigate("/staff-dashboard");
+        } else {
+          setError("Invalid credentials. Contact admin.");
+        }
+      } catch {
+        setError("Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -192,6 +216,16 @@ export default function PosLoginPage() {
               "Access POS Terminal"
             )}
           </Button>
+
+          <div className="text-center pt-1">
+            <Link
+              to="/login"
+              data-ocid="pos_login.unified_login.link"
+              className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+            >
+              Or use Unified Login →
+            </Link>
+          </div>
         </div>
       </div>
 

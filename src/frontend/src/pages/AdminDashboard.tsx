@@ -687,7 +687,7 @@ function ItemFormModal({
         toast.success("Item updated!");
         onSaved();
       } else {
-        const newId = BigInt(Date.now());
+        const newId = Date.now() as unknown as bigint;
         const newItem: CatalogItem = {
           id: newId,
           name: form.name,
@@ -704,7 +704,7 @@ function ItemFormModal({
               : "",
           requiresPdfCalc: form.requiresPdfCalc,
           published: true,
-          createdAt: BigInt(Date.now()),
+          createdAt: Date.now() as unknown as bigint,
           mediaFiles: [],
           mediaTypes,
           itemType: form.itemType,
@@ -1450,7 +1450,7 @@ function ProductFormModal({
     setSaving(true);
     try {
       const newItem: CatalogItem = {
-        id: BigInt(Date.now()),
+        id: Date.now() as unknown as bigint,
         name: form.name,
         category: form.category,
         description: form.description,
@@ -1459,7 +1459,7 @@ function ProductFormModal({
         requiredDocuments: "",
         requiresPdfCalc: false,
         published: true,
-        createdAt: BigInt(Date.now()),
+        createdAt: Date.now() as unknown as bigint,
         mediaFiles: [],
         mediaTypes: [],
         itemType: "product",
@@ -1763,7 +1763,7 @@ function ServiceFormModal({
     setSaving(true);
     try {
       const newItem: CatalogItem = {
-        id: BigInt(Date.now()),
+        id: Date.now() as unknown as bigint,
         name: form.name,
         category: form.category,
         description: form.description,
@@ -1773,7 +1773,7 @@ function ServiceFormModal({
           form.category === "CSC & Govt Forms" ? form.requiredDocuments : "",
         requiresPdfCalc: form.requiresPdfCalc,
         published: true,
-        createdAt: BigInt(Date.now()),
+        createdAt: Date.now() as unknown as bigint,
         mediaFiles: [],
         mediaTypes: [],
         itemType: "service",
@@ -3934,14 +3934,14 @@ function LiveOperationalDashboard() {
     try {
       const todayStr = new Date().toISOString().split("T")[0];
       const newExpense: ExpenseEntry = {
-        id: BigInt(Date.now()),
+        id: Date.now() as unknown as bigint,
         category: quickExpenseForm.category,
         amount: Number(quickExpenseForm.amount),
         date: todayStr,
         paymentMode: quickExpenseForm.paymentMode,
         note: quickExpenseForm.note,
         addedBy: "admin",
-        createdAt: BigInt(Date.now()),
+        createdAt: Date.now() as unknown as bigint,
       };
       storageAddItem(STORAGE_KEYS.expenses, newExpense);
       toast.success("Expense added!");
@@ -9206,14 +9206,14 @@ function TeamAccessSection() {
     }
     const today = new Date().toISOString().split("T")[0];
     const newExpense: ExpenseEntry = {
-      id: BigInt(Date.now()),
+      id: Date.now() as unknown as bigint,
       category: "Staff Salary & Payroll",
       amount,
       date: today,
       paymentMode: "Cash",
       note: `Salary paid to ${member.name} (${member.mobile})`,
       addedBy: "admin",
-      createdAt: BigInt(Date.now()),
+      createdAt: Date.now() as unknown as bigint,
     };
     storageAddItem(STORAGE_KEYS.expenses, newExpense);
     setSalaryInputs((prev) => ({ ...prev, [member.mobile]: "" }));
@@ -11584,13 +11584,13 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
         });
       } else {
         const newIncome: ManualIncomeEntry = {
-          id: BigInt(Date.now()),
+          id: Date.now() as unknown as bigint,
           category: incomeForm.category,
           amount: Number(incomeForm.amount),
           date: incomeForm.date,
           paymentMode: incomeForm.paymentMode,
           description: incomeForm.description,
-          createdAt: BigInt(Date.now()),
+          createdAt: Date.now() as unknown as bigint,
         };
         storageAddItem(STORAGE_KEYS.manualIncomes, newIncome);
         setIncomes((prev) => [newIncome, ...prev]);
@@ -11649,14 +11649,14 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
         });
       } else {
         const newExpense: ExpenseEntry = {
-          id: BigInt(Date.now()),
+          id: Date.now() as unknown as bigint,
           category: expenseForm.category,
           amount: Number(expenseForm.amount),
           date: expenseForm.date,
           paymentMode: expenseForm.paymentMode,
           note: expenseForm.note,
           addedBy: "admin",
-          createdAt: BigInt(Date.now()),
+          createdAt: Date.now() as unknown as bigint,
         };
         storageAddItem(STORAGE_KEYS.expenses, newExpense);
         setExpenses((prev) => [newExpense, ...prev]);
@@ -15097,7 +15097,7 @@ export default function AdminDashboard() {
     ];
 
     const seeded: CatalogItem[] = services.map((svc, i) => ({
-      id: BigInt(Date.now() + i),
+      id: (Date.now() + i) as unknown as bigint,
       name: svc.name,
       category: svc.category,
       description: "",
@@ -15106,7 +15106,7 @@ export default function AdminDashboard() {
       requiredDocuments: "",
       requiresPdfCalc: false,
       published: true,
-      createdAt: BigInt(Date.now() + i),
+      createdAt: (Date.now() + i) as unknown as bigint,
       mediaFiles: [],
       mediaTypes: [],
     }));
