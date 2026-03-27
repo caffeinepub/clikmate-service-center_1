@@ -326,6 +326,18 @@ function Header({
             >
               Admin
             </Link>
+            <Link
+              to="/login"
+              data-ocid="nav.staff_login.link"
+              className="text-sm font-semibold px-4 py-2 rounded-xl border transition-all"
+              style={{
+                borderColor: "rgba(0,255,255,0.4)",
+                background: "rgba(0,255,255,0.1)",
+                color: "rgba(0,255,255,0.9)",
+              }}
+            >
+              Staff Login
+            </Link>
           </nav>
           <div className="hidden md:flex items-center gap-3">
             <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -428,6 +440,15 @@ function Header({
               {link.label}
             </button>
           ))}
+          <Link
+            to="/login"
+            data-ocid="nav.mobile.staff_login.link"
+            onClick={() => setMobileOpen(false)}
+            className="block w-full text-left py-3 text-sm font-semibold border-b border-white/10"
+            style={{ color: "rgba(0,255,255,0.9)" }}
+          >
+            Staff Login
+          </Link>
           <div className="pt-3 flex items-center justify-between">
             <span className="text-xs text-white/70">
               <Phone className="w-3.5 h-3.5 inline mr-1" />

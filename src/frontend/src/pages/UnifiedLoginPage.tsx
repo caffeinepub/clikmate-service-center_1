@@ -13,110 +13,101 @@ type StaffMember = {
   role?: string;
 };
 
-type RoleOption = {
-  value: string;
-  label: string;
-};
+const ROLE_OPTIONS = [
+  "SuperAdmin",
+  "Student",
+  "Teacher",
+  "Principal",
+  "Accountant",
+  "AdmissionStaff",
+  "Maintainance_Staff",
+  "Library_Staff",
+  "Examination_Controller",
+  "Print_Staff",
+  "Vice_Principal",
+  "Manager",
+  "Front_Office",
+  "Admin",
+  "Assistant_Teacher",
+  "Cook",
+  "Driver",
+  "Conductor",
+  "Vendor",
+];
 
 export default function UnifiedLoginPage() {
   const navigate = useNavigate();
-  const [mobile, setMobile] = useState("");
+  const [loginWithMobile, setLoginWithMobile] = useState(false);
+  const [userId, setUserId] = useState("");
   const [pin, setPin] = useState("");
-  const [role, setRole] = useState("admin");
+  const [selectedRole, setSelectedRole] = useState("Admin");
   const [loading, setLoading] = useState(false);
-  const [loadingRoles, setLoadingRoles] = useState(true);
   const [error, setError] = useState("");
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
-  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([
-    { value: "admin", label: "🔐 Admin" },
-    { value: "customer", label: "🛍️ Customer" },
-  ]);
 
   useEffect(() => {
     async function loadStaff() {
       try {
         const users = await fsGetCollection<StaffMember>("users");
-        const staff = users.filter((u) => u.role !== "admin" && u.mobile);
-        setStaffList(staff);
-        const staffOptions: RoleOption[] = staff.map((s) => ({
-          value: `staff_${s.mobile}`,
-          label: `👤 ${s.name || s.mobile} (Staff)`,
-        }));
-        setRoleOptions([
-          { value: "admin", label: "🔐 Admin" },
-          ...staffOptions,
-          { value: "customer", label: "🛍️ Customer" },
-        ]);
+        setStaffList(users.filter((u) => u.mobile));
       } catch {
-        // Fallback: read from localStorage
         try {
           const raw = localStorage.getItem("clikmate_staff_members");
           const local: StaffMember[] = raw ? JSON.parse(raw) : [];
           setStaffList(local);
-          const staffOptions: RoleOption[] = local
-            .filter((s) => s.mobile)
-            .map((s) => ({
-              value: `staff_${s.mobile}`,
-              label: `👤 ${s.name || s.mobile} (Staff)`,
-            }));
-          setRoleOptions([
-            { value: "admin", label: "🔐 Admin" },
-            ...staffOptions,
-            { value: "customer", label: "🛍️ Customer" },
-          ]);
         } catch {
-          // silently ignore
+          // ignore
         }
-      } finally {
-        setLoadingRoles(false);
       }
     }
     loadStaff();
   }, []);
 
-  const isAdmin = role === "admin";
-  const isCustomer = role === "customer";
-
   async function handleLogin() {
-    if (!mobile || mobile.length < 10) {
+    if (!userId) {
+      setError(
+        loginWithMobile
+          ? "Please enter your mobile number."
+          : "Please enter your User ID.",
+      );
+      return;
+    }
+    if (loginWithMobile && userId.length < 10) {
       setError("Please enter a valid 10-digit mobile number.");
       return;
     }
     if (!pin) {
-      setError(
-        isAdmin
-          ? "Please enter your Admin Password / Master Key."
-          : "Please enter your 4-digit PIN.",
-      );
+      setError("Please enter your password / PIN.");
       return;
     }
-    if (!isAdmin && !isCustomer && pin.length < 4) {
-      setError("Please enter your 4-digit PIN.");
-      return;
-    }
+
     setLoading(true);
     setError("");
 
     try {
-      if (isAdmin) {
-        // Check master key or Firestore admin
+      const isAdminRole =
+        selectedRole === "Admin" || selectedRole === "SuperAdmin";
+
+      if (!loginWithMobile && isAdminRole) {
+        // Admin login via User ID
         const isMasterKey = pin === "CLIKMATE-ADMIN-2024";
         let isFirestoreAdmin = false;
         if (!isMasterKey) {
           try {
             const users = await fsGetCollection<
-              StaffMember & { role?: string; password?: string }
+              StaffMember & { password?: string }
             >("users");
             const adminUser = users.find(
               (u) =>
                 u.role === "admin" &&
-                u.mobile === mobile &&
+                (u.mobile === userId ||
+                  (u as { userId?: string }).userId === userId) &&
                 (u.pin === pin ||
                   (u as { password?: string }).password === pin),
             );
             isFirestoreAdmin = !!adminUser;
           } catch {
-            // ignore firestore error
+            // ignore
           }
         }
         if (isMasterKey || isFirestoreAdmin) {
@@ -126,47 +117,114 @@ export default function UnifiedLoginPage() {
         } else {
           setError("Invalid admin credentials.");
         }
-      } else if (role.startsWith("staff_")) {
-        const staffMobile = role.replace("staff_", "");
-        if (mobile !== staffMobile) {
-          setError("Mobile number does not match selected staff account.");
-          setLoading(false);
-          return;
-        }
-        // Try Firestore first, then localStorage
+      } else if (loginWithMobile) {
+        // Mobile number login
         let matched: StaffMember | undefined;
         try {
           const users = await fsGetCollection<StaffMember>("users");
-          matched = users.find((s) => s.mobile === mobile && s.pin === pin);
+          matched = users.find((s) => s.mobile === userId && s.pin === pin);
         } catch {
-          matched = staffList.find((s) => s.mobile === mobile && s.pin === pin);
+          matched = staffList.find((s) => s.mobile === userId && s.pin === pin);
         }
         if (!matched) {
           const raw = localStorage.getItem("clikmate_staff_members");
           const local: StaffMember[] = raw ? JSON.parse(raw) : [];
-          matched = local.find((s) => s.mobile === mobile && s.pin === pin);
+          matched = local.find((s) => s.mobile === userId && s.pin === pin);
+        }
+        // Check if admin
+        if (pin === "CLIKMATE-ADMIN-2024") {
+          localStorage.setItem("clikmate_admin_session", "1");
+          toast.success("Admin access granted!");
+          navigate("/admin");
+          return;
         }
         if (matched) {
-          localStorage.setItem(
-            "staffSession",
-            JSON.stringify({
-              mobile,
-              name: matched.name || mobile,
-              loggedInAt: Date.now(),
-            }),
-          );
-          toast.success(`Welcome back, ${matched.name || "Staff"}!`);
-          navigate("/staff-dashboard");
+          const role = matched.role?.toLowerCase();
+          if (role === "admin") {
+            localStorage.setItem("clikmate_admin_session", "1");
+            toast.success("Admin access granted!");
+            navigate("/admin");
+          } else if (role === "customer" || role === "student") {
+            localStorage.setItem(
+              "customerSession",
+              JSON.stringify({ mobile: userId, loggedInAt: Date.now() }),
+            );
+            toast.success("Welcome!");
+            navigate("/vault");
+          } else {
+            localStorage.setItem(
+              "staffSession",
+              JSON.stringify({
+                mobile: userId,
+                name: matched.name || userId,
+                loggedInAt: Date.now(),
+              }),
+            );
+            toast.success(`Welcome back, ${matched.name || "Staff"}!`);
+            navigate("/staff-dashboard");
+          }
         } else {
           setError("Invalid credentials. Contact your admin.");
         }
-      } else if (isCustomer) {
-        localStorage.setItem(
-          "customerSession",
-          JSON.stringify({ mobile, loggedInAt: Date.now() }),
-        );
-        toast.success("Welcome!");
-        navigate("/vault");
+      } else {
+        // User ID + Role login
+        const lcRole = selectedRole.toLowerCase();
+        if (lcRole === "student") {
+          localStorage.setItem(
+            "customerSession",
+            JSON.stringify({ mobile: userId, loggedInAt: Date.now() }),
+          );
+          toast.success("Welcome!");
+          navigate("/vault");
+          return;
+        }
+        // Try to match in Firestore or localStorage by userId/mobile
+        let matched: StaffMember | undefined;
+        try {
+          const users = await fsGetCollection<StaffMember>("users");
+          matched = users.find(
+            (s) =>
+              (s.mobile === userId ||
+                (s as { userId?: string }).userId === userId) &&
+              s.pin === pin,
+          );
+        } catch {
+          matched = staffList.find((s) => s.mobile === userId && s.pin === pin);
+        }
+        if (!matched) {
+          const raw = localStorage.getItem("clikmate_staff_members");
+          const local: StaffMember[] = raw ? JSON.parse(raw) : [];
+          matched = local.find((s) => s.mobile === userId && s.pin === pin);
+        }
+        // Also allow admin master key
+        if (pin === "CLIKMATE-ADMIN-2024" && isAdminRole) {
+          localStorage.setItem("clikmate_admin_session", "1");
+          toast.success("Admin access granted!");
+          navigate("/admin");
+          return;
+        }
+        if (matched) {
+          const matchedRole = matched.role?.toLowerCase() || "";
+          if (matchedRole === "admin") {
+            localStorage.setItem("clikmate_admin_session", "1");
+            toast.success("Admin access granted!");
+            navigate("/admin");
+          } else {
+            localStorage.setItem(
+              "staffSession",
+              JSON.stringify({
+                mobile: matched.mobile || userId,
+                name: matched.name || userId,
+                role: selectedRole,
+                loggedInAt: Date.now(),
+              }),
+            );
+            toast.success(`Welcome back, ${matched.name || userId}!`);
+            navigate("/staff-dashboard");
+          }
+        } else {
+          setError("Invalid credentials. Contact your admin.");
+        }
       }
     } catch {
       setError("Login failed. Please try again.");
@@ -210,7 +268,6 @@ export default function UnifiedLoginPage() {
             }}
           >
             <span className="text-3xl font-black text-gray-900">C</span>
-            {/* Glow ring */}
             <div
               className="absolute inset-0 rounded-2xl"
               style={{
@@ -241,104 +298,131 @@ export default function UnifiedLoginPage() {
             WebkitBackdropFilter: "blur(20px)",
           }}
         >
-          <h2 className="text-xl font-bold text-white mb-1 text-center">
-            Sign In
-          </h2>
-          <p className="text-white/40 text-sm text-center mb-7">
-            Enter your credentials to continue
-          </p>
+          {/* Title section */}
+          <div className="text-center mb-7">
+            <h2 className="text-2xl font-bold text-white">User Login</h2>
+            <p
+              className="text-sm font-semibold mt-1"
+              style={{ color: "rgba(0,255,255,0.7)" }}
+            >
+              Sign in to ClikMate ERP
+            </p>
+            <p
+              className="text-xs mt-1"
+              style={{ color: "rgba(255,255,255,0.4)" }}
+            >
+              Enter your staff credentials to continue
+            </p>
+          </div>
 
           <div className="space-y-5">
-            {/* Role Selector */}
-            <div>
-              <label
-                htmlFor="unified-role"
-                className="block text-xs font-semibold uppercase tracking-widest mb-2"
-                style={{ color: "rgba(0,255,255,0.6)" }}
+            {/* Toggle: Login with Mobile Number */}
+            <label
+              className="flex items-center gap-3 cursor-pointer select-none"
+              data-ocid="unified_login.mobile_toggle.checkbox"
+            >
+              <div
+                className="relative w-5 h-5 rounded flex-shrink-0"
+                style={{
+                  background: loginWithMobile
+                    ? "rgba(0,255,255,0.8)"
+                    : "rgba(0,255,255,0.07)",
+                  border: "1.5px solid rgba(0,255,255,0.5)",
+                  transition: "background 0.2s",
+                }}
               >
-                Role
-              </label>
-              <div className="relative">
-                <select
-                  id="unified-role"
-                  data-ocid="unified_login.role.select"
-                  value={role}
+                <input
+                  type="checkbox"
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  checked={loginWithMobile}
                   onChange={(e) => {
-                    setRole(e.target.value);
+                    setLoginWithMobile(e.target.checked);
+                    setUserId("");
+                    setPin("");
                     setError("");
                   }}
-                  disabled={loadingRoles}
-                  className="w-full appearance-none pr-10 pl-4 py-3 rounded-xl text-sm text-white font-medium focus:outline-none transition-colors"
-                  style={{
-                    background: "rgba(0,255,255,0.07)",
-                    border: "1px solid rgba(0,255,255,0.25)",
-                    color: "white",
-                  }}
-                >
-                  {loadingRoles ? (
-                    <option>Loading roles...</option>
-                  ) : (
-                    roleOptions.map((opt) => (
-                      <option
-                        key={opt.value}
-                        value={opt.value}
-                        style={{ background: "#0d1533", color: "white" }}
-                      >
-                        {opt.label}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <ChevronDown
-                  className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                  style={{
-                    width: 16,
-                    height: 16,
-                    color: "rgba(0,255,255,0.5)",
-                  }}
                 />
+                {loginWithMobile && (
+                  <svg
+                    className="absolute inset-0 w-full h-full p-0.5"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 8l4 4 6-7"
+                      stroke="#0a0f1e"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
               </div>
-            </div>
+              <span
+                className="text-sm font-medium"
+                style={{ color: "rgba(255,255,255,0.7)" }}
+              >
+                Login with Mobile Number
+              </span>
+            </label>
 
-            {/* Mobile Number */}
+            {/* User ID / Mobile Number */}
             <div>
               <label
-                htmlFor="unified-mobile"
+                htmlFor="login-userid"
                 className="block text-xs font-semibold uppercase tracking-widest mb-2"
                 style={{ color: "rgba(0,255,255,0.6)" }}
               >
-                Mobile Number
+                {loginWithMobile ? "Enter Mobile Number" : "User ID"}
               </label>
               <div className="relative">
-                <Phone
-                  className="absolute left-3 top-1/2 -translate-y-1/2"
-                  style={{
-                    width: 16,
-                    height: 16,
-                    color: "rgba(0,255,255,0.4)",
-                  }}
-                />
+                {loginWithMobile ? (
+                  <Phone
+                    className="absolute left-3 top-1/2 -translate-y-1/2"
+                    style={{
+                      width: 16,
+                      height: 16,
+                      color: "rgba(0,255,255,0.4)",
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold"
+                    style={{ color: "rgba(0,255,255,0.4)" }}
+                  >
+                    @
+                  </span>
+                )}
                 <input
-                  id="unified-mobile"
-                  data-ocid="unified_login.mobile.input"
-                  type="tel"
-                  maxLength={10}
+                  id="login-userid"
+                  data-ocid="unified_login.userid.input"
+                  type={loginWithMobile ? "tel" : "text"}
+                  maxLength={loginWithMobile ? 10 : undefined}
                   className="w-full pl-9 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/25 focus:outline-none transition-colors"
                   style={{
                     background: "rgba(0,255,255,0.05)",
                     border: "1px solid rgba(0,255,255,0.2)",
                   }}
                   onFocus={(e) => {
-                    (e.target as HTMLInputElement).style.borderColor =
-                      "rgba(0,255,255,0.6)";
+                    e.currentTarget.style.borderColor = "rgba(0,255,255,0.6)";
                   }}
                   onBlur={(e) => {
-                    (e.target as HTMLInputElement).style.borderColor =
-                      "rgba(0,255,255,0.2)";
+                    e.currentTarget.style.borderColor = "rgba(0,255,255,0.2)";
                   }}
-                  placeholder="10-digit mobile number"
-                  value={mobile}
-                  onChange={(e) => setMobile(e.target.value.replace(/\D/g, ""))}
+                  placeholder={
+                    loginWithMobile
+                      ? "10-digit mobile number"
+                      : "Enter your user ID"
+                  }
+                  value={userId}
+                  onChange={(e) =>
+                    setUserId(
+                      loginWithMobile
+                        ? e.target.value.replace(/\D/g, "")
+                        : e.target.value,
+                    )
+                  }
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleLogin();
                   }}
@@ -346,14 +430,14 @@ export default function UnifiedLoginPage() {
               </div>
             </div>
 
-            {/* PIN / Password */}
+            {/* Password / PIN */}
             <div>
               <label
-                htmlFor="unified-pin"
+                htmlFor="login-pin"
                 className="block text-xs font-semibold uppercase tracking-widest mb-2"
                 style={{ color: "rgba(0,255,255,0.6)" }}
               >
-                {isAdmin ? "Admin Password / Master Key" : "4-Digit PIN"}
+                Password
               </label>
               <div className="relative">
                 <Lock
@@ -365,46 +449,77 @@ export default function UnifiedLoginPage() {
                   }}
                 />
                 <input
-                  id="unified-pin"
+                  id="login-pin"
                   data-ocid="unified_login.pin.input"
                   type="password"
-                  maxLength={isAdmin ? undefined : 4}
-                  className="w-full pl-9 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/25 focus:outline-none transition-colors tracking-widest"
+                  className="w-full pl-9 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/25 focus:outline-none transition-colors"
                   style={{
                     background: "rgba(0,255,255,0.05)",
                     border: "1px solid rgba(0,255,255,0.2)",
-                    letterSpacing: isAdmin ? "normal" : "0.3em",
                   }}
                   onFocus={(e) => {
-                    (e.target as HTMLInputElement).style.borderColor =
-                      "rgba(0,255,255,0.6)";
+                    e.currentTarget.style.borderColor = "rgba(0,255,255,0.6)";
                   }}
                   onBlur={(e) => {
-                    (e.target as HTMLInputElement).style.borderColor =
-                      "rgba(0,255,255,0.2)";
+                    e.currentTarget.style.borderColor = "rgba(0,255,255,0.2)";
                   }}
-                  placeholder={isAdmin ? "Enter master key" : "••••"}
+                  placeholder="Enter your password"
                   value={pin}
-                  onChange={(e) => {
-                    const val = isAdmin
-                      ? e.target.value
-                      : e.target.value.replace(/\D/g, "");
-                    setPin(val);
-                  }}
+                  onChange={(e) => setPin(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleLogin();
                   }}
                 />
               </div>
-              {isAdmin && (
-                <p
-                  className="text-xs mt-1.5"
-                  style={{ color: "rgba(0,255,255,0.4)" }}
-                >
-                  Use master key: CLIKMATE-ADMIN-2024
-                </p>
-              )}
             </div>
+
+            {/* Select Role — only shown when loginWithMobile is false */}
+            {!loginWithMobile && (
+              <div>
+                <label
+                  htmlFor="login-role"
+                  className="block text-xs font-semibold uppercase tracking-widest mb-2"
+                  style={{ color: "rgba(0,255,255,0.6)" }}
+                >
+                  Select Role
+                </label>
+                <div className="relative">
+                  <select
+                    id="login-role"
+                    data-ocid="unified_login.role.select"
+                    value={selectedRole}
+                    onChange={(e) => {
+                      setSelectedRole(e.target.value);
+                      setError("");
+                    }}
+                    className="w-full appearance-none pr-10 pl-4 py-3 rounded-xl text-sm font-medium focus:outline-none transition-colors"
+                    style={{
+                      background: "rgba(0,255,255,0.07)",
+                      border: "1px solid rgba(0,255,255,0.25)",
+                      color: "white",
+                    }}
+                  >
+                    {ROLE_OPTIONS.map((r) => (
+                      <option
+                        key={r}
+                        value={r}
+                        style={{ background: "#0d1533", color: "white" }}
+                      >
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{
+                      width: 16,
+                      height: 16,
+                      color: "rgba(0,255,255,0.5)",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Error */}
             {error && (
@@ -428,7 +543,7 @@ export default function UnifiedLoginPage() {
               data-ocid="unified_login.submit.primary_button"
               type="button"
               onClick={handleLogin}
-              disabled={loading || loadingRoles}
+              disabled={loading}
               className="w-full py-3.5 rounded-full font-bold text-sm text-gray-900 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               style={{
                 background: "linear-gradient(135deg, #00ffff, #0080ff)",
