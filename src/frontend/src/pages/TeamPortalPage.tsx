@@ -1,3 +1,4 @@
+import BackButton from "@/components/BackButton";
 import { useNavigate } from "@/utils/router";
 import { Crown, Package, Printer, ShieldCheck, Truck } from "lucide-react";
 import { useState } from "react";
@@ -74,12 +75,16 @@ export default function TeamPortalPage() {
   return (
     <div
       data-ocid="portal.page"
-      className="min-h-screen flex flex-col items-center justify-center px-4 py-12"
+      className="relative min-h-screen flex flex-col items-center justify-center px-4 py-12"
       style={{
         background:
           "linear-gradient(135deg, #0a0f1e 0%, #0f172a 60%, #1e1b4b 100%)",
       }}
     >
+      {/* Back */}
+      <div className="absolute top-4 left-4">
+        <BackButton />
+      </div>
       {/* Header */}
       <div className="text-center mb-12">
         <div

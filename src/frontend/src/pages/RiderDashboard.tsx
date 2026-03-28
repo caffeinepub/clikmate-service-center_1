@@ -1,3 +1,4 @@
+import BackButton from "@/components/BackButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -310,6 +311,7 @@ export default function RiderDashboard() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <BackButton />
           <Truck style={{ width: 22, height: 22, color: "#f59e0b" }} />
           <span style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 16 }}>
             Delivery Dashboard

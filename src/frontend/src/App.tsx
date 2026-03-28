@@ -1852,7 +1852,7 @@ export default function App() {
   return (
     <CartProvider>
       {/* Global print letterhead — hidden on screen, shown on print */}
-      <div id="clikmate-global-print-letterhead">
+      <div id="clikmate-global-print-letterhead" style={{ display: "none" }}>
         <div
           style={{
             display: "flex",

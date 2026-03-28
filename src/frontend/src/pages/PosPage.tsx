@@ -1973,6 +1973,22 @@ function CheckoutModal({
         paymentMethod: paymentMode,
         amountPaid: Number.parseFloat(amountPaid || "0"),
         amountDue: amountDue,
+        cashPaid:
+          paymentMode === "Cash" ||
+          paymentMode === "Split_Cash_UPI" ||
+          paymentMode === "Split_Cash_Khata"
+            ? Number.parseFloat(amountPaid || "0")
+            : 0,
+        upiPaid:
+          paymentMode === "UPI"
+            ? Number.parseFloat(amountPaid || "0")
+            : paymentMode === "Split_Cash_UPI"
+              ? Math.max(0, subtotal - Number.parseFloat(amountPaid || "0"))
+              : 0,
+        khataDue:
+          paymentMode === "Split_Cash_Khata"
+            ? Math.max(0, subtotal - Number.parseFloat(amountPaid || "0"))
+            : 0,
         customerPhone: phone,
         staffMobile,
         createdAt: Date.now(),
@@ -2045,7 +2061,7 @@ function CheckoutModal({
         const invoiceNum = (newSale as any).invoiceNumber || `#SO-${saleId}`;
         const khataDescription = `POS Sale - Bill #${invoiceNum} (Total: ₹${subtotal.toFixed(2)}, Paid: ₹${Number.parseFloat(amountPaid || "0").toFixed(2)})`;
         if (existing) {
-          await fsUpdateDoc("khata", existing.phone, {
+          await fsUpdateDoc("khata", existing.id, {
             totalDue: (existing.totalDue || 0) + finalAmountDue,
             lastUpdated: Date.now(),
             lastNote: khataDescription,

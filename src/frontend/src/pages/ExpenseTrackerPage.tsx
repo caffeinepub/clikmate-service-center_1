@@ -1,17 +1,12 @@
+import BackButton from "@/components/BackButton";
 import { LetterheadLayout, triggerPrint } from "@/components/LetterheadLayout";
 import {
   fsAddDoc,
   fsDeleteDoc,
   fsGetCollection,
 } from "@/utils/firestoreService";
-import {
-  ArrowLeft,
-  BookOpen,
-  Loader2,
-  Printer,
-  Receipt,
-  Trash2,
-} from "lucide-react";
+import { formatDateOnly } from "@/utils/formatDateTime";
+import { BookOpen, Loader2, Printer, Receipt, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -187,6 +182,8 @@ export default function ExpenseTrackerPage() {
     } as React.CSSProperties,
   };
 
+  const formDirty = !!(form.amount || form.description);
+
   return (
     <div style={S.page}>
       {/* Top Bar */}
@@ -199,27 +196,7 @@ export default function ExpenseTrackerPage() {
           marginBottom: 28,
         }}
       >
-        <button
-          type="button"
-          data-ocid="expense.back_button"
-          onClick={() => {
-            window.location.hash = "/admin";
-          }}
-          style={{
-            background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 10,
-            color: "rgba(255,255,255,0.8)",
-            padding: "8px 16px",
-            fontSize: 13,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <ArrowLeft size={14} /> Back to Dashboard
-        </button>
+        <BackButton disabled={formDirty} />
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Receipt size={22} style={{ color: "#06b6d4" }} />
           <h1
@@ -649,7 +626,7 @@ export default function ExpenseTrackerPage() {
                               color: "rgba(255,255,255,0.6)",
                             }}
                           >
-                            {exp.date}
+                            {formatDateOnly(exp.date)}
                           </td>
                           <td style={{ padding: "10px 10px" }}>
                             <span
@@ -854,7 +831,7 @@ export default function ExpenseTrackerPage() {
                     color: "#000",
                   }}
                 >
-                  {exp.date}
+                  {formatDateOnly(exp.date)}
                 </td>
                 <td
                   style={{

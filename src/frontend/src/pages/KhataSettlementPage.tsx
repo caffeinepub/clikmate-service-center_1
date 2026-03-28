@@ -1,8 +1,10 @@
 import type { KhataEntry } from "@/backend.d";
+import BackButton from "@/components/BackButton";
 import { LetterheadLayout, triggerPrint } from "@/components/LetterheadLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fsGetCollection, fsUpdateDoc } from "@/utils/firestoreService";
+import { formatDateTime } from "@/utils/formatDateTime";
 import { useNavigate } from "@/utils/router";
 import {
   ArrowLeft,
@@ -43,16 +45,7 @@ function formatINR(n: number) {
   return `₹${n.toFixed(2)}`;
 }
 
-function formatDate(ts: bigint | number) {
-  const ms = typeof ts === "bigint" ? Number(ts) / 1_000_000 : ts;
-  return new Date(ms).toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+// formatDate replaced by formatDateTime from @/utils/formatDateTime
 
 function buildMockLedger(entry: KhataEntry): LedgerEvent[] {
   // Build a synthetic chronological ledger (oldest first, balance accumulates downward)
@@ -362,7 +355,7 @@ export default function KhataSettlementPage() {
       e.customerName,
       e.phone,
       e.totalDue.toFixed(2),
-      formatDate(e.lastUpdated),
+      formatDateTime(e.lastUpdated),
     ]);
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -436,6 +429,7 @@ export default function KhataSettlementPage() {
           gap: 16,
         }}
       >
+        <BackButton disabled={!!selectedEntry || showLedger} />
         <button
           type="button"
           onClick={() => navigate("/admin")}
@@ -912,7 +906,7 @@ export default function KhataSettlementPage() {
                     color: "rgba(255,255,255,0.3)",
                   }}
                 >
-                  Last updated: {formatDate(selectedEntry.lastUpdated)}
+                  Last updated: {formatDateTime(selectedEntry.lastUpdated)}
                 </div>
               </div>
             </div>
@@ -1557,7 +1551,7 @@ export default function KhataSettlementPage() {
                     },
                     {
                       label: "Last Activity",
-                      val: formatDate(selectedEntry.lastUpdated),
+                      val: formatDateTime(selectedEntry.lastUpdated),
                       color: "#a78bfa",
                       small: true,
                     },

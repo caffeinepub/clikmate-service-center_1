@@ -1,10 +1,11 @@
+import BackButton from "@/components/BackButton";
 import {
   fsAddDoc,
   fsGetCollection,
   fsUpdateDoc,
 } from "@/utils/firestoreService";
 import { useNavigate } from "@/utils/router";
-import { ArrowLeft, CheckCircle, Clock, UserCheck, Users } from "lucide-react";
+import { CheckCircle, Clock, UserCheck, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -38,7 +39,6 @@ function getTimeStr(iso: string) {
 }
 
 export default function StaffClockInPage() {
-  const navigate = useNavigate();
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [clockLog, setClockLog] = useState<ClockInEntry[]>([]);
   const [pin, setPin] = useState("");
@@ -148,25 +148,7 @@ export default function StaffClockInPage() {
           gap: 12,
         }}
       >
-        <button
-          type="button"
-          data-ocid="clockin.back.button"
-          onClick={() => navigate("/pos")}
-          style={{
-            background: "rgba(255,255,255,0.07)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 8,
-            padding: "6px 10px",
-            color: "rgba(255,255,255,0.7)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            fontSize: 13,
-          }}
-        >
-          <ArrowLeft size={15} /> Back to POS
-        </button>
+        <BackButton />
         <div
           style={{
             width: 36,

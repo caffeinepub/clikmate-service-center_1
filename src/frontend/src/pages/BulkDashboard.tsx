@@ -1,5 +1,6 @@
 import { ExternalBlob } from "@/backend";
 import type { TypesettingQuoteRequest } from "@/backend";
+import BackButton from "@/components/BackButton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useActor } from "@/hooks/useActor";
@@ -694,6 +695,7 @@ export default function BulkDashboard() {
         }}
       >
         <div className="flex items-center gap-3">
+          <BackButton />
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
             style={{ background: "rgba(192,132,252,0.15)" }}

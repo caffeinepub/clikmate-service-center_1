@@ -43,6 +43,7 @@ import {
   fsSubscribeCollection,
   fsUpdateDoc,
 } from "@/utils/firestoreService";
+import { formatDateTime } from "@/utils/formatDateTime";
 import { runCloudMigration } from "@/utils/migrationUtils";
 import { Link } from "@/utils/router";
 import {
@@ -4198,9 +4199,7 @@ function OrdersSection() {
                         fontSize: 12,
                       }}
                     >
-                      {new Date(
-                        Number(order.submittedAt) / 1_000_000,
-                      ).toLocaleDateString()}
+                      {formatDateTime(Number(order.submittedAt) / 1_000_000)}
                     </td>
                     <td
                       style={{
@@ -4451,7 +4450,9 @@ function LiveOperationalDashboard() {
     (o) => o.status === "Out for Delivery" || o.status === "Ready for Delivery",
   );
   const todayOrders = orders.filter((o) => {
-    const d = new Date(Number(o.createdAt) / 1_000_000);
+    const raw = Number(o.createdAt);
+    // Nanoseconds (ICP) are ~19 digits; milliseconds (Firebase) are ~13 digits
+    const d = raw > 1e15 ? new Date(raw / 1_000_000) : new Date(raw);
     return d >= today;
   });
   const todayRevenue = todayOrders.reduce(
@@ -4491,7 +4492,8 @@ function LiveOperationalDashboard() {
   const { start: periodStart, end: periodEnd } = getDateBounds(dateRange);
 
   const filteredOrders = orders.filter((o) => {
-    const d = new Date(Number(o.createdAt) / 1_000_000 || Number(o.createdAt));
+    const raw = Number(o.createdAt);
+    const d = raw > 1e15 ? new Date(raw / 1_000_000) : new Date(raw);
     const ds = d.toISOString().split("T")[0];
     return ds >= periodStart && ds <= periodEnd;
   });
@@ -4508,7 +4510,7 @@ function LiveOperationalDashboard() {
     if (!order.items) return sum;
     return (
       sum +
-      (order.items as any[]).reduce((s: number, item: any) => {
+      ((order.items as any[]) || []).reduce((s: number, item: any) => {
         const catalogItem = catalogMap.get(
           String(item.itemName || item.name || "").toLowerCase(),
         );
@@ -5959,8 +5961,8 @@ function LiveOperationalDashboard() {
                     const idStr = String(order.id);
                     const shortId = idStr.length > 6 ? idStr.slice(-6) : idStr;
                     const serviceDetail =
-                      (order.items[0] as { itemName?: string } | undefined)
-                        ?.itemName ??
+                      (order.items as any)?.[0]?.itemName ??
+                      (order.items as any)?.[0]?.name ??
                       order.deliveryMethod ??
                       "-";
                     return (
@@ -6015,7 +6017,7 @@ function LiveOperationalDashboard() {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          &#8377;{Number(order.totalAmount).toFixed(0)}
+                          &#8377;{Number(order.totalAmount || 0).toFixed(0)}
                         </td>
                         <td
                           style={{ padding: "12px 16px", whiteSpace: "nowrap" }}
@@ -6780,9 +6782,7 @@ function ActiveOrdersSection() {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {new Date(
-                            Number(order.createdAt) / 1_000_000,
-                          ).toLocaleDateString()}
+                          {formatDateTime(Number(order.createdAt) / 1_000_000)}
                         </td>
                         <td style={{ padding: "12px 14px" }}>
                           <div
@@ -7759,9 +7759,7 @@ function OrderHistorySection() {
                     color: "#000",
                   }}
                 >
-                  {new Date(
-                    Number(order.createdAt) / 1_000_000,
-                  ).toLocaleDateString("en-IN")}
+                  {formatDateTime(Number(order.createdAt) / 1_000_000)}
                 </td>
               </tr>
             ))}
@@ -7920,9 +7918,7 @@ function OrderHistorySection() {
                         fontSize: 12,
                       }}
                     >
-                      {new Date(
-                        Number(order.createdAt) / 1_000_000,
-                      ).toLocaleDateString()}
+                      {formatDateTime(Number(order.createdAt) / 1_000_000)}
                     </td>
                   </tr>
                 ))}
@@ -9802,19 +9798,27 @@ function FactoryResetCard() {
     ];
     try {
       setWiping(true);
+      let totalDeleted = 0;
       for (const collName of WIPE_COLLECTIONS) {
-        const snap = await getDocs(collection(db, collName));
-        const docs = snap.docs;
-        for (let i = 0; i < docs.length; i += 400) {
-          const chunk = docs.slice(i, i + 400);
-          const batch = writeBatch(db);
-          for (const d of chunk) {
-            batch.delete(d.ref);
+        try {
+          const snap = await getDocs(collection(db, collName));
+          const docs = snap.docs;
+          for (let i = 0; i < docs.length; i += 400) {
+            const chunk = docs.slice(i, i + 400);
+            const batch = writeBatch(db);
+            for (const d of chunk) {
+              batch.delete(d.ref);
+            }
+            await batch.commit();
           }
-          await batch.commit();
+          totalDeleted += docs.length;
+        } catch (collErr) {
+          toast.error(`Failed to wipe '${collName}': ${String(collErr)}`);
         }
       }
-      toast.success("✓ All test data wiped. App is ready for live operations.");
+      toast.success(
+        `✓ Wiped ${totalDeleted} records. App is ready for live operations.`,
+      );
       setShowConfirm(false);
     } catch (e) {
       console.error("Factory reset failed:", e);
@@ -10993,6 +10997,7 @@ function TeamAccessSection() {
       mobile: string;
       pin: string;
       role: string;
+      roles?: string[];
       baseSalary: number;
     }>
   >([]);
@@ -11000,35 +11005,59 @@ function TeamAccessSection() {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [pin, setPin] = useState("");
-  const [accesses, setAccesses] = useState<string[]>(["POS Access"]);
-  const ACCESS_OPTIONS = [
+  const [accesses, setAccesses] = useState<string[]>(["POS_Staff"]);
+  const [editingRolesMobile, setEditingRolesMobile] = useState<string | null>(
+    null,
+  );
+  const ROLE_OPTIONS = [
     {
-      key: "POS Access",
-      label: "POS Access",
-      desc: "Counter billing & retail orders",
+      key: "Admin",
+      label: "Admin",
+      desc: "Full system access",
+      color: "#f59e0b",
+      bg: "rgba(245,158,11,0.15)",
+    },
+    {
+      key: "Manager",
+      label: "Manager",
+      desc: "Dashboard & reports",
+      color: "#818cf8",
+      bg: "rgba(129,140,248,0.15)",
+    },
+    {
+      key: "POS_Staff",
+      label: "POS Staff",
+      desc: "Counter billing & retail",
       color: "#60a5fa",
       bg: "rgba(96,165,250,0.15)",
     },
     {
-      key: "Rider Access",
-      label: "Rider Access",
+      key: "Print_Staff",
+      label: "Print Staff",
+      desc: "Print jobs & B2B",
+      color: "#c084fc",
+      bg: "rgba(192,132,252,0.15)",
+    },
+    {
+      key: "Accountant",
+      label: "Accountant",
+      desc: "Khata, Expenses, GST",
+      color: "#34d399",
+      bg: "rgba(52,211,153,0.15)",
+    },
+    {
+      key: "Rider",
+      label: "Rider",
       desc: "Delivery dashboard",
       color: "#fb923c",
       bg: "rgba(251,146,60,0.15)",
     },
     {
-      key: "Bulk Printing Access",
-      label: "Bulk Printing Access",
-      desc: "B2B VIP portal",
-      color: "#c084fc",
-      bg: "rgba(192,132,252,0.15)",
-    },
-    {
-      key: "Daily Audit View",
-      label: "Daily Audit View",
-      desc: "View today's cash drawer only",
-      color: "#34d399",
-      bg: "rgba(52,211,153,0.15)",
+      key: "Bulk Service",
+      label: "Bulk Service",
+      desc: "B2B VIP bulk portal",
+      color: "#e879f9",
+      bg: "rgba(232,121,249,0.15)",
     },
   ];
   const [baseSalary, setBaseSalary] = useState("");
@@ -11073,7 +11102,16 @@ function TeamAccessSection() {
     setLoading(true);
     fsGetCollection<(typeof members)[0]>("users")
       .then((list) => {
-        setMembers(list);
+        const normalized = list.map((m: any) => ({
+          ...m,
+          roles:
+            Array.isArray(m.roles) && m.roles.length > 0
+              ? m.roles
+              : m.role
+                ? [m.role]
+                : ["POS_Staff"],
+        }));
+        setMembers(normalized);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -11167,7 +11205,8 @@ function TeamAccessSection() {
       name: name.trim(),
       mobile,
       pin,
-      role: accesses.join(", "),
+      roles: accesses,
+      role: accesses[0] || "POS_Staff",
       baseSalary: Number(baseSalary) || 0,
     };
     setMembers((prev) => [optimistic, ...prev]);
@@ -11177,7 +11216,7 @@ function TeamAccessSection() {
     setName("");
     setMobile("");
     setPin("");
-    setAccesses(["POS Access"]);
+    setAccesses(["POS_Staff"]);
     setBaseSalary("");
     toast.success(`Team member "${savedName}" added successfully.`);
 
@@ -11464,7 +11503,7 @@ function TeamAccessSection() {
                     gap: 8,
                   }}
                 >
-                  {ACCESS_OPTIONS.map((opt) => (
+                  {ROLE_OPTIONS.map((opt) => (
                     <label
                       key={opt.key}
                       style={{
@@ -11603,11 +11642,12 @@ function TeamAccessSection() {
                       {[
                         "Name",
                         "Login ID (Mobile)",
-                        "Accesses",
+                        "Roles",
                         "Access PIN",
                         "Mode",
                         "Salary Due (₹)",
                         "Pay Salary",
+                        "Edit Roles",
                         "Action",
                       ].map((h) => (
                         <th
@@ -11668,7 +11708,7 @@ function TeamAccessSection() {
                         >
                           {member.mobile}
                         </td>
-                        <td style={{ padding: "12px 20px", maxWidth: 200 }}>
+                        <td style={{ padding: "12px 20px", maxWidth: 220 }}>
                           <div
                             style={{
                               display: "flex",
@@ -11676,24 +11716,23 @@ function TeamAccessSection() {
                               gap: 4,
                             }}
                           >
-                            {(member.role || "")
-                              .split(",")
-                              .map((a) => a.trim())
+                            {(Array.isArray(member.roles)
+                              ? member.roles
+                              : [member.role || "POS_Staff"]
+                            )
                               .filter(Boolean)
-                              .map((acc) => {
-                                const opt =
-                                  ACCESS_OPTIONS.find((o) => o.key === acc) ??
-                                  (acc === "Shop Staff"
-                                    ? ACCESS_OPTIONS[0]
-                                    : acc === "Rider"
-                                      ? ACCESS_OPTIONS[1]
-                                      : acc === "Bulk Printing Staff"
-                                        ? ACCESS_OPTIONS[2]
-                                        : null);
-                                if (!opt) return null;
+                              .map((role) => {
+                                const opt = ROLE_OPTIONS.find(
+                                  (o) => o.key === role,
+                                ) || {
+                                  key: role,
+                                  label: role,
+                                  color: "#94a3b8",
+                                  bg: "rgba(148,163,184,0.15)",
+                                };
                                 return (
                                   <span
-                                    key={acc}
+                                    key={role}
                                     style={{
                                       display: "inline-block",
                                       padding: "2px 8px",
@@ -11858,6 +11897,155 @@ function TeamAccessSection() {
                             >
                               Pay
                             </button>
+                          </div>
+                        </td>
+                        <td style={{ padding: "12px 20px" }}>
+                          <div style={{ position: "relative" }}>
+                            <button
+                              type="button"
+                              data-ocid={`admin.team.edit_roles.button.${idx + 1}`}
+                              onClick={() =>
+                                setEditingRolesMobile(
+                                  editingRolesMobile === member.mobile
+                                    ? null
+                                    : member.mobile,
+                                )
+                              }
+                              style={{
+                                background: "rgba(99,102,241,0.15)",
+                                border: "1px solid rgba(99,102,241,0.3)",
+                                color: "#818cf8",
+                                borderRadius: 8,
+                                padding: "4px 10px",
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Edit Roles ✏️
+                            </button>
+                            {editingRolesMobile === member.mobile && (
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  top: "100%",
+                                  left: 0,
+                                  zIndex: 100,
+                                  background: "#1e293b",
+                                  border: "1px solid rgba(255,255,255,0.1)",
+                                  borderRadius: 10,
+                                  padding: 12,
+                                  minWidth: 220,
+                                  boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    color: "#94a3b8",
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    marginBottom: 8,
+                                    textTransform: "uppercase",
+                                  }}
+                                >
+                                  Assign Roles
+                                </div>
+                                {ROLE_OPTIONS.map((opt) => {
+                                  const memberRoles = Array.isArray(
+                                    member.roles,
+                                  )
+                                    ? member.roles
+                                    : [member.role || "POS_Staff"];
+                                  const checked = memberRoles.includes(opt.key);
+                                  return (
+                                    <label
+                                      key={opt.key}
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        padding: "6px 0",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) => {
+                                          const newRoles = e.target.checked
+                                            ? [...memberRoles, opt.key]
+                                            : memberRoles.filter(
+                                                (r: string) => r !== opt.key,
+                                              );
+                                          setMembers((prev) =>
+                                            prev.map((m) =>
+                                              m.mobile === member.mobile
+                                                ? {
+                                                    ...m,
+                                                    roles: newRoles,
+                                                    role:
+                                                      newRoles[0] ||
+                                                      "POS_Staff",
+                                                  }
+                                                : m,
+                                            ),
+                                          );
+                                          fsUpdateDoc("users", member.mobile, {
+                                            roles: newRoles,
+                                            role: newRoles[0] || "POS_Staff",
+                                          })
+                                            .then(() =>
+                                              toast.success(
+                                                `Roles updated for ${member.name}`,
+                                              ),
+                                            )
+                                            .catch(() =>
+                                              toast.error(
+                                                "Failed to update roles",
+                                              ),
+                                            );
+                                        }}
+                                        style={{ accentColor: opt.color }}
+                                      />
+                                      <span
+                                        style={{
+                                          color: opt.color,
+                                          fontSize: 12,
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        {opt.label}
+                                      </span>
+                                      <span
+                                        style={{
+                                          color: "#64748b",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {opt.desc}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingRolesMobile(null)}
+                                  style={{
+                                    marginTop: 8,
+                                    width: "100%",
+                                    padding: "6px",
+                                    background: "rgba(255,255,255,0.05)",
+                                    border: "1px solid rgba(255,255,255,0.1)",
+                                    borderRadius: 6,
+                                    color: "#94a3b8",
+                                    fontSize: 12,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Done
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td style={{ padding: "12px 20px" }}>

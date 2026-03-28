@@ -1,3 +1,4 @@
+import BackButton from "@/components/BackButton";
 import { fsGetCollection, fsGetSettings } from "@/utils/firestoreService";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -320,21 +321,9 @@ export default function GstReportsPage() {
       <div style={S.page}>
         {/* Header */}
         <div className="no-print" style={{ marginBottom: 24 }}>
-          <a
-            href="/#/admin"
-            data-ocid="gst_reports.back.link"
-            style={{
-              color: "rgba(6,182,212,0.8)",
-              textDecoration: "none",
-              fontSize: 13,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              marginBottom: 16,
-            }}
-          >
-            ← Back to Admin
-          </a>
+          <div style={{ marginBottom: 16 }}>
+            <BackButton />
+          </div>
           <div
             style={{
               display: "flex",

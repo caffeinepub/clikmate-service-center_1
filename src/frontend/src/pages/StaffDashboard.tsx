@@ -1,10 +1,9 @@
 import type { CatalogItem, backendInterface } from "@/backend.d";
+import BackButton from "@/components/BackButton";
 import { useActor } from "@/hooks/useActor";
 import { useAllCatalogItems } from "@/hooks/useQueries";
 import {
-  BarChart3,
   Bell,
-  BookOpen,
   ChevronRight,
   ClipboardList,
   Clock,
@@ -17,10 +16,9 @@ import {
   Printer,
   Search,
   ShoppingCart,
-  X,
 } from "lucide-react";
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 // ─── Styles (identical to AdminDashboard) ─────────────────────────────────────
@@ -866,6 +864,14 @@ function StaffClockInView({ staffName }: { staffName: string }) {
 }
 
 // ─── Main StaffDashboard Component ───────────────────────────────────────────
+function normalizeRoles(session: any): string[] {
+  if (!session) return [];
+  if (Array.isArray(session.roles) && session.roles.length > 0)
+    return session.roles;
+  if (session.role) return [session.role];
+  return ["POS_Staff"];
+}
+
 export default function StaffDashboard() {
   const { actor } = useActor();
 
@@ -879,6 +885,19 @@ export default function StaffDashboard() {
   })();
 
   const staffName = staffSession?.name || staffSession?.mobile || "Staff";
+
+  const userRoles = normalizeRoles(staffSession);
+  const hasRole = (r: string) =>
+    userRoles.some(
+      (role: string) => role.toLowerCase() === r.toLowerCase() || role === r,
+    );
+  const isAdmin = hasRole("Admin");
+  const isPOS = hasRole("POS_Staff") || isAdmin;
+  const isPrint = hasRole("Print_Staff") || isAdmin;
+  const isAccountant = hasRole("Accountant") || isAdmin;
+  const isManager = hasRole("Manager") || isAdmin;
+  const isRider = hasRole("Rider");
+  const isBulk = hasRole("Bulk Service") || hasRole("Bulk_Service") || isAdmin;
 
   const [activeSection, setActiveSection] = useState<StaffSection>("dashboard");
 
@@ -1007,64 +1026,116 @@ export default function StaffDashboard() {
           />
 
           {/* Sales & Operations */}
-          <NavGroup
-            icon={ShoppingCart}
-            label="Sales & Operations"
-            groupId="sales"
-            isOpen={!!openGroups.sales}
-            onToggle={() => toggleGroup("sales")}
-          >
-            <NavItem
+          {(isPOS || isPrint || isBulk || isManager || isAdmin) && (
+            <NavGroup
               icon={ShoppingCart}
-              label="POS Counter / Billing"
-              active={false}
-              ocid="staff.pos.shortcut"
-              onClick={() => {
-                window.location.hash = "#/pos";
-                setSidebarOpen(false);
-              }}
-            />
-            <NavItem
-              icon={FolderOpen}
-              label="Order History"
-              active={activeSection === "order-history"}
-              ocid="staff.order_history.tab"
-              onClick={() => {
-                setActiveSection("order-history");
-                setSidebarOpen(false);
-              }}
-            />
-            <NavItem
-              icon={Layers}
-              label="Bulk Dashboard"
-              active={false}
-              ocid="staff.bulk.shortcut"
-              onClick={() => {
-                window.location.hash = "#/bulk-dashboard";
-                setSidebarOpen(false);
-              }}
-            />
-          </NavGroup>
+              label="Sales & Operations"
+              groupId="sales"
+              isOpen={!!openGroups.sales}
+              onToggle={() => toggleGroup("sales")}
+            >
+              {isPOS && (
+                <NavItem
+                  icon={ShoppingCart}
+                  label="POS Counter / Billing"
+                  active={false}
+                  ocid="staff.pos.shortcut"
+                  onClick={() => {
+                    window.location.hash = "#/pos";
+                    setSidebarOpen(false);
+                  }}
+                />
+              )}
+              {(isPOS || isManager || isAdmin) && (
+                <NavItem
+                  icon={FolderOpen}
+                  label="Order History"
+                  active={activeSection === "order-history"}
+                  ocid="staff.order_history.tab"
+                  onClick={() => {
+                    setActiveSection("order-history");
+                    setSidebarOpen(false);
+                  }}
+                />
+              )}
+              {(isBulk || isAdmin) && (
+                <NavItem
+                  icon={Layers}
+                  label="Bulk Dashboard"
+                  active={false}
+                  ocid="staff.bulk.shortcut"
+                  onClick={() => {
+                    window.location.hash = "#/bulk-dashboard";
+                    setSidebarOpen(false);
+                  }}
+                />
+              )}
+            </NavGroup>
+          )}
 
           {/* Catalog & Products */}
-          <NavGroup
-            icon={Package}
-            label="Catalog & Products"
-            groupId="catalog"
-            isOpen={!!openGroups.catalog}
-            onToggle={() => toggleGroup("catalog")}
-          >
-            <NavItem
+          {(isManager || isAdmin || isPOS) && (
+            <NavGroup
               icon={Package}
-              label="Catalog (Read-Only)"
-              active={activeSection === "catalog"}
-              ocid="staff.catalog.tab"
-              onClick={() => {
-                setActiveSection("catalog");
-                setSidebarOpen(false);
-              }}
-            />
-          </NavGroup>
+              label="Catalog & Products"
+              groupId="catalog"
+              isOpen={!!openGroups.catalog}
+              onToggle={() => toggleGroup("catalog")}
+            >
+              <NavItem
+                icon={Package}
+                label="Catalog (Read-Only)"
+                active={activeSection === "catalog"}
+                ocid="staff.catalog.tab"
+                onClick={() => {
+                  setActiveSection("catalog");
+                  setSidebarOpen(false);
+                }}
+              />
+            </NavGroup>
+          )}
+
+          {/* Accounts / Khata */}
+          {isAccountant && (
+            <NavGroup
+              icon={ClipboardList}
+              label="Accounts / Khata"
+              groupId="accounts"
+              isOpen={!!openGroups.accounts}
+              onToggle={() => toggleGroup("accounts")}
+            >
+              <NavItem
+                icon={ClipboardList}
+                label="Khata Settlement"
+                active={false}
+                ocid="staff.khata.link"
+                onClick={() => {
+                  window.location.hash = "#/khata";
+                  setSidebarOpen(false);
+                }}
+              />
+              <NavItem
+                icon={FolderOpen}
+                label="Expense Book"
+                active={false}
+                ocid="staff.expenses.link"
+                onClick={() => {
+                  window.location.hash = "#/expense-tracker";
+                  setSidebarOpen(false);
+                }}
+              />
+              <NavItem
+                icon={ClipboardList}
+                label="GST Reports"
+                active={false}
+                ocid="staff.gst_reports.link"
+                onClick={() => {
+                  window.location.hash = "#/gst-reports";
+                  setSidebarOpen(false);
+                }}
+              />
+            </NavGroup>
+          )}
 
           {/* Staff Tools */}
           <NavGroup
@@ -1085,6 +1156,20 @@ export default function StaffDashboard() {
               }}
             />
           </NavGroup>
+
+          {/* Rider standalone link */}
+          {isRider && (
+            <NavItem
+              icon={Layers}
+              label="Rider Dashboard"
+              active={false}
+              ocid="staff.rider.link"
+              onClick={() => {
+                window.location.hash = "#/rider-dashboard";
+                setSidebarOpen(false);
+              }}
+            />
+          )}
         </div>
 
         {/* Staff Identity + Logout */}
@@ -1135,8 +1220,34 @@ export default function StaffDashboard() {
               <div style={{ color: "white", fontWeight: 600, fontSize: 13 }}>
                 {staffName}
               </div>
-              <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.35)",
+                  fontSize: 11,
+                  marginBottom: 4,
+                }}
+              >
                 Staff · Active
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {userRoles.slice(0, 3).map((r: string) => (
+                  <span
+                    key={r}
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: "#06b6d4",
+                      background: "rgba(6,182,212,0.15)",
+                      border: "1px solid rgba(6,182,212,0.3)",
+                      borderRadius: 4,
+                      padding: "1px 5px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {r.replace("_", " ")}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -1185,6 +1296,7 @@ export default function StaffDashboard() {
         {/* Header */}
         <header style={S.header}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <BackButton />
             {isMobile && (
               <button
                 type="button"

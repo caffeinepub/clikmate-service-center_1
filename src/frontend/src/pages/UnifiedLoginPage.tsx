@@ -1,71 +1,29 @@
 import { fsGetCollection } from "@/utils/firestoreService";
 import { useNavigate } from "@/utils/router";
-import { ChevronDown, Loader2, Lock, Phone } from "lucide-react";
+import { Loader2, Lock, Phone } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-
-type StaffMember = {
-  id?: string;
-  mobile?: string;
-  pin?: string;
-  name?: string;
-  role?: string;
-};
-
-const ROLE_OPTIONS = [
-  "SuperAdmin",
-  "Admin",
-  "Manager",
-  "POS_Staff",
-  "Print_Staff",
-  "Accountant",
-  "Rider",
-];
 
 export default function UnifiedLoginPage() {
   const navigate = useNavigate();
   const [loginWithMobile, setLoginWithMobile] = useState(false);
   const [userId, setUserId] = useState("");
   const [pin, setPin] = useState("");
-  const [selectedRole, setSelectedRole] = useState("Admin");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [staffList, setStaffList] = useState<StaffMember[]>([]);
-
-  useEffect(() => {
-    async function loadStaff() {
-      try {
-        const users = await fsGetCollection<StaffMember>("users");
-        setStaffList(users.filter((u) => u.mobile));
-      } catch {
-        try {
-          const raw = localStorage.getItem("clikmate_staff_members");
-          const local: StaffMember[] = raw ? JSON.parse(raw) : [];
-          setStaffList(local);
-        } catch {
-          // ignore
-        }
-      }
-    }
-    loadStaff();
-  }, []);
 
   async function handleLogin() {
     if (!userId) {
-      setError(
-        loginWithMobile
-          ? "Please enter your mobile number."
-          : "Please enter your User ID.",
-      );
-      return;
-    }
-    if (loginWithMobile && userId.length < 10) {
-      setError("Please enter a valid 10-digit mobile number.");
+      setError("Please enter your User ID / Mobile number.");
       return;
     }
     if (!pin) {
       setError("Please enter your password / PIN.");
+      return;
+    }
+    if (loginWithMobile && userId.length < 10) {
+      setError("Please enter a valid 10-digit mobile number.");
       return;
     }
 
@@ -73,146 +31,83 @@ export default function UnifiedLoginPage() {
     setError("");
 
     try {
-      const isAdminRole =
-        selectedRole === "Admin" || selectedRole === "SuperAdmin";
+      // Admin master key check (always first)
+      if (pin === "CLIKMATE-ADMIN-2024") {
+        localStorage.setItem("clikmate_admin_session", "1");
+        toast.success("Admin access granted!");
+        navigate("/admin");
+        return;
+      }
 
-      if (!loginWithMobile && isAdminRole) {
-        // Admin login via User ID
-        const isMasterKey = pin === "CLIKMATE-ADMIN-2024";
-        let isFirestoreAdmin = false;
-        if (!isMasterKey) {
-          try {
-            const users = await fsGetCollection<
-              StaffMember & { password?: string }
-            >("users");
-            const adminUser = users.find(
-              (u) =>
-                u.role === "admin" &&
-                (u.mobile === userId ||
-                  (u as { userId?: string }).userId === userId) &&
-                (u.pin === pin ||
-                  (u as { password?: string }).password === pin),
-            );
-            isFirestoreAdmin = !!adminUser;
-          } catch {
-            // ignore
-          }
-        }
-        if (isMasterKey || isFirestoreAdmin) {
-          localStorage.setItem("clikmate_admin_session", "1");
-          toast.success("Admin access granted!");
-          navigate("/admin");
-        } else {
-          setError("Invalid admin credentials.");
-        }
-      } else if (loginWithMobile) {
-        // Mobile number login
-        let matched: StaffMember | undefined;
-        try {
-          const users = await fsGetCollection<StaffMember>("users");
-          matched = users.find((s) => s.mobile === userId && s.pin === pin);
-        } catch {
-          matched = staffList.find((s) => s.mobile === userId && s.pin === pin);
-        }
-        if (!matched) {
-          const raw = localStorage.getItem("clikmate_staff_members");
-          const local: StaffMember[] = raw ? JSON.parse(raw) : [];
-          matched = local.find((s) => s.mobile === userId && s.pin === pin);
-        }
-        // Check if admin
-        if (pin === "CLIKMATE-ADMIN-2024") {
-          localStorage.setItem("clikmate_admin_session", "1");
-          toast.success("Admin access granted!");
-          navigate("/admin");
-          return;
-        }
-        if (matched) {
-          const role = matched.role?.toLowerCase();
-          if (role === "admin") {
-            localStorage.setItem("clikmate_admin_session", "1");
-            toast.success("Admin access granted!");
-            navigate("/admin");
-          } else if (role === "customer" || role === "student") {
-            localStorage.setItem(
-              "customerSession",
-              JSON.stringify({ mobile: userId, loggedInAt: Date.now() }),
-            );
-            toast.success("Welcome!");
-            navigate("/vault");
-          } else {
-            localStorage.setItem(
-              "staffSession",
-              JSON.stringify({
-                mobile: userId,
-                name: matched.name || userId,
-                loggedInAt: Date.now(),
-              }),
-            );
-            toast.success(`Welcome back, ${matched.name || "Staff"}!`);
-            navigate("/staff-dashboard");
-          }
-        } else {
-          setError("Invalid credentials. Contact your admin.");
-        }
+      // Look up user in Firestore
+      let matched: any = null;
+      try {
+        const users = await fsGetCollection<any>("users");
+        matched = users.find(
+          (u: any) =>
+            (u.mobile === userId || u.userId === userId) && u.pin === pin,
+        );
+      } catch {
+        // fallback to localStorage
+        const raw = localStorage.getItem("clikmate_staff_members");
+        const local: any[] = raw ? JSON.parse(raw) : [];
+        matched = local.find((s: any) => s.mobile === userId && s.pin === pin);
+      }
+
+      if (!matched) {
+        setError("Invalid credentials. Contact your admin.");
+        return;
+      }
+
+      // Normalize roles: handle both role:string and roles:string[] from Firestore
+      const normalizeRoles = (u: any): string[] => {
+        if (Array.isArray(u.roles) && u.roles.length > 0) return u.roles;
+        if (u.role) return [u.role];
+        return ["POS_Staff"];
+      };
+
+      const userRoles = normalizeRoles(matched);
+      const matchedRole = (matched.role || "").toLowerCase();
+
+      // Admin role check
+      if (userRoles.includes("Admin") || matchedRole === "admin") {
+        localStorage.setItem("clikmate_admin_session", "1");
+        toast.success("Admin access granted!");
+        navigate("/admin");
+        return;
+      }
+
+      // Save session with roles array
+      localStorage.setItem(
+        "staffSession",
+        JSON.stringify({
+          mobile: matched.mobile || userId,
+          name: matched.name || userId,
+          roles: userRoles,
+          loggedInAt: Date.now(),
+        }),
+      );
+      toast.success(`Welcome back, ${matched.name || userId}!`);
+
+      // Route by roles
+      const lcRoles = userRoles.map((r: string) => r.toLowerCase());
+      if (
+        lcRoles.includes("rider") &&
+        !lcRoles.some((r: string) =>
+          ["pos_staff", "print_staff", "manager", "accountant"].includes(r),
+        )
+      ) {
+        navigate("/rider-dashboard");
+      } else if (
+        (lcRoles.includes("bulk service") ||
+          lcRoles.includes("bulk_service")) &&
+        !lcRoles.some((r: string) =>
+          ["pos_staff", "print_staff", "manager", "accountant"].includes(r),
+        )
+      ) {
+        navigate("/bulk-dashboard");
       } else {
-        // User ID + Role login
-        const lcRole = selectedRole.toLowerCase();
-        if (lcRole === "student") {
-          localStorage.setItem(
-            "customerSession",
-            JSON.stringify({ mobile: userId, loggedInAt: Date.now() }),
-          );
-          toast.success("Welcome!");
-          navigate("/vault");
-          return;
-        }
-        // Try to match in Firestore or localStorage by userId/mobile
-        let matched: StaffMember | undefined;
-        try {
-          const users = await fsGetCollection<StaffMember>("users");
-          matched = users.find(
-            (s) =>
-              (s.mobile === userId ||
-                (s as { userId?: string }).userId === userId) &&
-              s.pin === pin,
-          );
-        } catch {
-          matched = staffList.find((s) => s.mobile === userId && s.pin === pin);
-        }
-        if (!matched) {
-          const raw = localStorage.getItem("clikmate_staff_members");
-          const local: StaffMember[] = raw ? JSON.parse(raw) : [];
-          matched = local.find((s) => s.mobile === userId && s.pin === pin);
-        }
-        // Also allow admin master key
-        if (pin === "CLIKMATE-ADMIN-2024" && isAdminRole) {
-          localStorage.setItem("clikmate_admin_session", "1");
-          toast.success("Admin access granted!");
-          navigate("/admin");
-          return;
-        }
-        if (matched) {
-          const matchedRole = matched.role?.toLowerCase() || "";
-          if (matchedRole === "admin") {
-            localStorage.setItem("clikmate_admin_session", "1");
-            toast.success("Admin access granted!");
-            navigate("/admin");
-          } else {
-            localStorage.setItem(
-              "staffSession",
-              JSON.stringify({
-                mobile: matched.mobile || userId,
-                name: matched.name || userId,
-                role: selectedRole,
-                loggedInAt: Date.now(),
-              }),
-            );
-            toast.success(`Welcome back, ${matched.name || userId}!`);
-            navigate("/staff-dashboard");
-          }
-        } else {
-          setError("Invalid credentials. Contact your admin.");
-        }
+        navigate("/staff-dashboard");
       }
     } catch {
       setError("Login failed. Please try again.");
@@ -460,54 +355,6 @@ export default function UnifiedLoginPage() {
                 />
               </div>
             </div>
-
-            {/* Select Role — only shown when loginWithMobile is false */}
-            {!loginWithMobile && (
-              <div>
-                <label
-                  htmlFor="login-role"
-                  className="block text-xs font-semibold uppercase tracking-widest mb-2"
-                  style={{ color: "rgba(0,255,255,0.6)" }}
-                >
-                  Select Role
-                </label>
-                <div className="relative">
-                  <select
-                    id="login-role"
-                    data-ocid="unified_login.role.select"
-                    value={selectedRole}
-                    onChange={(e) => {
-                      setSelectedRole(e.target.value);
-                      setError("");
-                    }}
-                    className="w-full appearance-none pr-10 pl-4 py-3 rounded-xl text-sm font-medium focus:outline-none transition-colors"
-                    style={{
-                      background: "rgba(0,255,255,0.07)",
-                      border: "1px solid rgba(0,255,255,0.25)",
-                      color: "white",
-                    }}
-                  >
-                    {ROLE_OPTIONS.map((r) => (
-                      <option
-                        key={r}
-                        value={r}
-                        style={{ background: "#0d1533", color: "white" }}
-                      >
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown
-                    className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                    style={{
-                      width: 16,
-                      height: 16,
-                      color: "rgba(0,255,255,0.5)",
-                    }}
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Error */}
             {error && (
