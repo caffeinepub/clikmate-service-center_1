@@ -1,4 +1,5 @@
 import type { KhataEntry } from "@/backend.d";
+import { LetterheadLayout, triggerPrint } from "@/components/LetterheadLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fsGetCollection, fsUpdateDoc } from "@/utils/firestoreService";
@@ -1372,54 +1373,7 @@ export default function KhataSettlementPage() {
       {/* ── Detailed Ledger Modal ── */}
       {showLedger && selectedEntry && (
         <>
-          {/* Print CSS injected only when modal is open */}
-          <style>{`
-            @media print {
-              body > * { display: none !important; }
-              .khata-ledger-print-area { display: block !important; }
-              .ledger-modal-backdrop { display: none !important; }
-              .ledger-close-btn { display: none !important; }
-              .print-hide { display: none !important; }
-              .print-only { display: block !important; }
-              .khata-ledger-print-area {
-                position: fixed !important;
-                inset: 0 !important;
-                background: white !important;
-                color: black !important;
-                padding: 20mm !important;
-                font-family: Arial, sans-serif !important;
-                font-size: 11pt !important;
-                max-height: none !important;
-                overflow: visible !important;
-                border-radius: 0 !important;
-                border: none !important;
-                box-shadow: none !important;
-                z-index: 9999 !important;
-              }
-              .ledger-print-table {
-                width: 100%;
-                border-collapse: collapse;
-              }
-              .ledger-print-table th,
-              .ledger-print-table td {
-                border: 1px solid #000;
-                padding: 8px 10px;
-                text-align: left;
-                font-size: 12pt;
-                color: #000 !important;
-                background: white !important;
-              }
-              .ledger-print-table th {
-                background-color: #f2f2f2 !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-                font-weight: bold;
-              }
-            }
-            @media screen {
-              .print-only { display: none !important; }
-            }
-          `}</style>
+          {/* triggerPrint used for khata-ledger-print */}
 
           {/* Backdrop */}
           <div
@@ -1540,7 +1494,7 @@ export default function KhataSettlementPage() {
                   <button
                     type="button"
                     className="print-hide"
-                    onClick={() => window.print()}
+                    onClick={() => triggerPrint("khata-ledger-print")}
                     style={{
                       background: "rgba(124,58,237,0.2)",
                       border: "1px solid rgba(124,58,237,0.5)",
@@ -1827,6 +1781,106 @@ export default function KhataSettlementPage() {
               </div>
             </div>
           </div>
+          {/* A4 Letterhead Print Area for Ledger */}
+          <LetterheadLayout
+            printAreaId="khata-ledger-print"
+            title="Customer Khata Ledger Statement"
+            subtitle={`Customer: ${selectedEntry.customerName} | Mobile: ${selectedEntry.phone}`}
+          >
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                marginTop: 15,
+              }}
+            >
+              <thead>
+                <tr>
+                  {[
+                    "Date",
+                    "Description",
+                    "Debit (₹)",
+                    "Credit (₹)",
+                    "Balance (₹)",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        border: "1px solid #000",
+                        padding: "8px 10px",
+                        background: "#f2f2f2",
+                        fontWeight: "bold",
+                        fontSize: "12pt",
+                        color: "#000",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ledgerEvents.map((ev, i) => (
+                  <tr key={`kp-${ev.date}-${i}-${ev.debit}`}>
+                    <td
+                      style={{
+                        border: "1px solid #000",
+                        padding: "8px 10px",
+                        fontSize: "11pt",
+                        color: "#000",
+                      }}
+                    >
+                      {ev.date}
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #000",
+                        padding: "8px 10px",
+                        fontSize: "11pt",
+                        color: "#000",
+                      }}
+                    >
+                      {ev.description}
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #000",
+                        padding: "8px 10px",
+                        fontSize: "11pt",
+                        color: "#000",
+                        textAlign: "right",
+                      }}
+                    >
+                      {ev.debit > 0 ? formatINR(ev.debit) : "—"}
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #000",
+                        padding: "8px 10px",
+                        fontSize: "11pt",
+                        color: "#000",
+                        textAlign: "right",
+                      }}
+                    >
+                      {ev.credit > 0 ? formatINR(ev.credit) : "—"}
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #000",
+                        padding: "8px 10px",
+                        fontSize: "11pt",
+                        color: "#000",
+                        textAlign: "right",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {formatINR(ev.balance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </LetterheadLayout>
         </>
       )}
     </div>

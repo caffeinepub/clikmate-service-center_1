@@ -292,124 +292,62 @@
   }
 }
 
-/* ─── Global Branded Letterhead (Print) ──────────────────── */
-#clikmate-global-print-letterhead {
+/* ─── Universal A4 Letterhead Print Architecture ──────────── */
+/* Letterhead print areas are hidden on screen; triggerPrint controls display */
+[id^="catalog-stock-print"],
+[id^="attendance-print"],
+[id^="order-history-print"],
+[id^="live-dashboard-print"],
+[id^="khata-ledger-print"],
+[id^="expense-print"] {
+  display: none;
+}
+
+/* Keep .print-only-table hidden on screen (legacy compatibility) */
+.print-only-table {
   display: none;
 }
 
 @media print {
-  /* Hide all UI chrome */
-  nav,
-  header,
-  aside,
-  footer,
-  .no-print,
-  [data-ocid*="sidebar"],
-  [data-ocid*="nav"],
-  button,
-  .cyber-btn {
-    display: none !important;
-    visibility: hidden !important;
-  }
-
-  body {
+  /* Universal A4 letterhead wrapper */
+  .a4-letterhead-wrapper {
     background: white !important;
     color: black !important;
-    background-image: none !important;
+    font-family: Arial, sans-serif !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
-  /* Show letterhead */
-  #clikmate-global-print-letterhead {
-    display: block !important;
-    visibility: visible !important;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    background: white;
-    color: black;
-    padding: 20px 40px 16px;
-    border-bottom: 3px double #1e40af;
-    z-index: 99999;
-    font-family: "Plus Jakarta Sans", sans-serif;
-  }
-
-  /* Print content readable */
-  * {
-    background-color: transparent !important;
-    color: black !important;
-    box-shadow: none !important;
-    text-shadow: none !important;
-  }
-
-  a,
-  a:visited {
-    text-decoration: underline;
-    color: black !important;
-  }
-
-  /* Ensure main content prints */
-  main,
-  .print-content,
-  [data-ocid*="page"] {
-    visibility: visible !important;
-    position: static !important;
-    margin-top: 120px;
-  }
-
-  /* ── A4 Letterhead Table Rules (NOT for POS thermal) ── */
-  .ui-only {
-    display: none !important;
-  }
-
-  .print-only-table {
-    display: table !important;
-  }
-
-  .a4-print-table {
+  .a4-letterhead-wrapper table {
     width: 100% !important;
     border-collapse: collapse !important;
-    margin-top: 15px !important;
-    font-family: Arial, sans-serif !important;
-    font-size: 12pt !important;
   }
 
-  .a4-print-table th,
-  .a4-print-table td {
+  .a4-letterhead-wrapper th,
+  .a4-letterhead-wrapper td {
     border: 1px solid #000 !important;
     padding: 8px 10px !important;
-    text-align: left !important;
     font-size: 12pt !important;
     color: #000 !important;
     background: white !important;
+    page-break-inside: avoid !important;
   }
 
-  .a4-print-table th {
-    background-color: #f2f2f2 !important;
+  .a4-letterhead-wrapper th {
+    background: #f2f2f2 !important;
+    font-weight: bold !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    font-weight: bold !important;
   }
 
-  /* Catalog Stock Report print area */
-  #catalog-stock-print-area {
-    display: block !important;
-    position: fixed !important;
-    inset: 0 !important;
-    background: white !important;
-    color: black !important;
-    padding: 20mm !important;
-    font-family: Arial, sans-serif !important;
-    z-index: 99999 !important;
+  tr {
+    page-break-inside: avoid !important;
   }
-}
 
-/* Hide print-only elements on screen */
-.print-only-table {
-  display: none;
-}
-#catalog-stock-print-area {
-  display: none;
+  .no-print {
+    display: none !important;
+  }
 }
 
 /* ─── GST A4 Tax Invoice Print ───────────────────────────── */

@@ -14,6 +14,11 @@ import type {
   backendInterface,
 } from "@/backend.d";
 import { CsvBulkUploader } from "@/components/CsvBulkUploader";
+import {
+  LetterheadLayout,
+  invalidateLetterheadCache,
+  triggerPrint,
+} from "@/components/LetterheadLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,7 +56,14 @@ import {
   storageSet,
   storageUpdateItem,
 } from "@/utils/storage";
-import { collection, getDocs, writeBatch } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  writeBatch,
+} from "firebase/firestore";
 import {
   AlertTriangle,
   BarChart3,
@@ -659,7 +671,7 @@ function ItemFormModal({
   }, [open, editItem]);
 
   async function handleSave() {
-    if (!form.name.trim() || !form.price.trim()) {
+    if (!form.name.trim() || !form.saleRate.trim()) {
       toast.error("Name and price are required.");
       return;
     }
@@ -3229,19 +3241,7 @@ function CatalogSection({
           <button
             type="button"
             data-ocid="admin.catalog.print_stock_report"
-            onClick={() => {
-              const style = document.createElement("style");
-              style.id = "catalog-print-override";
-              style.textContent = `
-                @media print {
-                  body > *:not(#catalog-stock-print-area) { display: none !important; }
-                  #catalog-stock-print-area { display: block !important; position: fixed !important; inset: 0 !important; background: white !important; padding: 20mm !important; font-family: Arial, sans-serif !important; z-index: 99999 !important; }
-                }
-              `;
-              document.head.appendChild(style);
-              window.print();
-              setTimeout(() => style.remove(), 2000);
-            }}
+            onClick={() => triggerPrint("catalog-stock-print")}
             style={{
               padding: "8px 16px",
               borderRadius: 10,
@@ -3774,104 +3774,32 @@ function CatalogSection({
         onConfirm={handleDelete}
         itemName={deleteTarget?.name ?? ""}
       />
-      {/* Hidden A4 Stock Report — shown only on print */}
-      <div id="catalog-stock-print-area" style={{ display: "none" }}>
-        <div
-          style={{
-            borderBottom: "3px double #1e40af",
-            paddingBottom: 12,
-            marginBottom: 16,
-          }}
-        >
-          <h1
-            style={{
-              fontSize: 22,
-              fontWeight: 900,
-              color: "#1e40af",
-              margin: 0,
-            }}
-          >
-            ClikMate Smart Online Service Center
-          </h1>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#555" }}>
-            Shop No. 12, Awanti Vihar, Raipur (C.G.) | Tel: +91 9508911400
-          </p>
-          <hr style={{ margin: "10px 0", borderColor: "#ccc" }} />
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <strong style={{ fontSize: 14, color: "#333" }}>
-              Stock Report — Catalog Inventory
-            </strong>
-            <span style={{ fontSize: 12, color: "#555" }}>
-              Printed:{" "}
-              {new Date().toLocaleDateString("en-IN", {
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-              })}
-            </span>
-          </div>
-        </div>
+      <LetterheadLayout
+        printAreaId="catalog-stock-print"
+        title="Stock Report — Catalog Inventory"
+      >
         <table
-          className="a4-print-table"
           style={{ width: "100%", borderCollapse: "collapse", marginTop: 15 }}
         >
           <thead>
             <tr>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Item Name
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Type
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Category
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Stock
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Sale Rate
-              </th>
+              {["Item Name", "Type", "Category", "Stock", "Sale Rate"].map(
+                (h) => (
+                  <th
+                    key={h}
+                    style={{
+                      border: "1px solid #000",
+                      padding: "8px 10px",
+                      background: "#f2f2f2",
+                      fontWeight: "bold",
+                      fontSize: "12pt",
+                      color: "#000",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody>
@@ -3932,20 +3860,7 @@ function CatalogSection({
             ))}
           </tbody>
         </table>
-        <p
-          style={{
-            marginTop: 20,
-            fontSize: 11,
-            color: "#777",
-            borderTop: "1px solid #ccc",
-            paddingTop: 8,
-          }}
-        >
-          Total Items: {items.length} &nbsp;|&nbsp; Products:{" "}
-          {items.filter((i) => i.itemType !== "service").length} &nbsp;|&nbsp;
-          Services: {items.filter((i) => i.itemType === "service").length}
-        </p>
-      </div>
+      </LetterheadLayout>
     </div>
   );
 }
@@ -4524,29 +4439,6 @@ function LiveOperationalDashboard() {
     loadOrders();
   }, []);
 
-  // Inject print styles once
-  useEffect(() => {
-    if (document.getElementById("clikmate-print-styles")) return;
-    const style = document.createElement("style");
-    style.id = "clikmate-print-styles";
-    style.textContent = `
-      @media print {
-        body * { visibility: hidden; }
-        #live-dashboard-print-area, #live-dashboard-print-area * { visibility: visible; }
-        #live-dashboard-print-area { position: absolute; left: 0; top: 0; width: 100%; }
-        nav, header, aside, .no-print { display: none !important; }
-        @page { size: A4; margin: 15mm; }
-        body { background: white !important; color: black !important; }
-        #print-report-header { display: block !important; }
-        table { width: 100%; border-collapse: collapse; font-size: 12pt; }
-        th, td { border: 1px solid #000; padding: 8px 10px; text-align: left; color: black !important; background: white !important; }
-        th { background: #f2f2f2 !important; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        * { box-shadow: none !important; border-radius: 0 !important; }
-      }
-    `;
-    document.head.appendChild(style);
-  }, []);
-
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -4874,13 +4766,74 @@ function LiveOperationalDashboard() {
               a.click();
               URL.revokeObjectURL(url);
             }}
-            onPrint={() => window.print()}
+            onPrint={() => triggerPrint("live-dashboard-print")}
           />
         </div>
       </div>
 
+      <LetterheadLayout
+        printAreaId="live-dashboard-print"
+        title="Daily Operations Dashboard"
+      >
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", marginTop: 15 }}
+        >
+          <thead>
+            <tr>
+              {["Metric", "Value"].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    background: "#f2f2f2",
+                    fontWeight: "bold",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ["Total Orders", String(orders.length)],
+              ["Today's Revenue", `₹${todayRevenue.toFixed(0)}`],
+              ["Pending Orders", String(pendingOrders.length)],
+              ["Processing Orders", String(processingOrders.length)],
+            ].map(([metric, value]) => (
+              <tr key={metric}>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {metric}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                    fontWeight: 700,
+                  }}
+                >
+                  {value}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </LetterheadLayout>
+
       <div id="live-dashboard-print-area">
-        {/* Print-only header */}
+        {/* Print-only header (legacy, hidden) */}
         <div id="print-report-header" style={{ display: "none" }}>
           <div
             style={{
@@ -7489,115 +7442,37 @@ function AttendanceReportSection() {
           </tbody>
         </table>
       </div>
-      {/* Print-only A4 Attendance Table */}
-      <div className="print-only-table" style={{ display: "none" }}>
-        <div
-          style={{
-            borderBottom: "3px double #1e40af",
-            paddingBottom: 12,
-            marginBottom: 16,
-          }}
-        >
-          <h1
-            style={{
-              fontSize: 22,
-              fontWeight: 900,
-              color: "#1e40af",
-              margin: 0,
-            }}
-          >
-            ClikMate Smart Online Service Center
-          </h1>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#555" }}>
-            Shop No. 12, Awanti Vihar, Raipur (C.G.) | Tel: +91 9508911400
-          </p>
-          <hr style={{ margin: "10px 0", borderColor: "#ccc" }} />
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <strong style={{ fontSize: 14, color: "#333" }}>
-              Attendance Report
-            </strong>
-            <span style={{ fontSize: 12, color: "#555" }}>
-              Printed:{" "}
-              {new Date().toLocaleDateString("en-IN", {
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-              })}
-            </span>
-          </div>
-        </div>
+      <LetterheadLayout
+        printAreaId="attendance-print"
+        title="Attendance Report"
+      >
         <table
-          className="a4-print-table"
           style={{ width: "100%", borderCollapse: "collapse", marginTop: 15 }}
         >
           <thead>
             <tr>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Date
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Staff Name
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Role
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Status
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Clock-In
-              </th>
-              <th
-                style={{
-                  border: "1px solid #000",
-                  padding: "8px 10px",
-                  background: "#f2f2f2",
-                  fontWeight: "bold",
-                  fontSize: "12pt",
-                }}
-              >
-                Clock-Out
-              </th>
+              {[
+                "Date",
+                "Staff Name",
+                "Role",
+                "Clock-In",
+                "Clock-Out",
+                "Status",
+              ].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    background: "#f2f2f2",
+                    fontWeight: "bold",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -7609,8 +7484,8 @@ function AttendanceReportSection() {
                     border: "1px solid #000",
                     padding: "8px 10px",
                     textAlign: "center",
-                    color: "#555",
                     fontSize: "12pt",
+                    color: "#000",
                   }}
                 >
                   No attendance records found.
@@ -7639,7 +7514,7 @@ function AttendanceReportSection() {
                     ? "Clocked Out"
                     : "Active/Working";
                   return (
-                    <tr key={`print-att-${entry.timestamp}-${i}`}>
+                    <tr key={`att-print-${entry.timestamp}-${i}`}>
                       <td
                         style={{
                           border: "1px solid #000",
@@ -7678,16 +7553,6 @@ function AttendanceReportSection() {
                           color: "#000",
                         }}
                       >
-                        {status}
-                      </td>
-                      <td
-                        style={{
-                          border: "1px solid #000",
-                          padding: "8px 10px",
-                          fontSize: "12pt",
-                          color: "#000",
-                        }}
-                      >
                         {clockInStr}
                       </td>
                       <td
@@ -7700,24 +7565,23 @@ function AttendanceReportSection() {
                       >
                         {clockOutStr}
                       </td>
+                      <td
+                        style={{
+                          border: "1px solid #000",
+                          padding: "8px 10px",
+                          fontSize: "12pt",
+                          color: "#000",
+                        }}
+                      >
+                        {status}
+                      </td>
                     </tr>
                   );
                 })
             )}
           </tbody>
         </table>
-        <p
-          style={{
-            marginTop: 16,
-            fontSize: 11,
-            color: "#777",
-            borderTop: "1px solid #ccc",
-            paddingTop: 8,
-          }}
-        >
-          Total Records: {log.length}
-        </p>
-      </div>
+      </LetterheadLayout>
     </div>
   );
 }
@@ -7796,9 +7660,114 @@ function OrderHistorySection() {
             a.click();
             URL.revokeObjectURL(url);
           }}
-          onPrint={() => window.print()}
+          onPrint={() => triggerPrint("order-history-print")}
         />
       </div>
+      <LetterheadLayout
+        printAreaId="order-history-print"
+        title="Order History Report"
+      >
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", marginTop: 15 }}
+        >
+          <thead>
+            <tr>
+              {[
+                "Order ID",
+                "Customer",
+                "Items",
+                "Total (₹)",
+                "Status",
+                "Date",
+              ].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    background: "#f2f2f2",
+                    fontWeight: "bold",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((order) => (
+              <tr key={String(order.id)}>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  #{String(order.id).slice(0, 8)}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {order.customerName || "-"}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "11pt",
+                    color: "#000",
+                  }}
+                >
+                  {(order.items as any[])
+                    ?.map((i: any) => `${i.itemName} x${i.qty}`)
+                    .join(", ") || "-"}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  ₹{Number(order.totalAmount || 0).toFixed(0)}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {order.status || "-"}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {new Date(
+                    Number(order.createdAt) / 1_000_000,
+                  ).toLocaleDateString("en-IN")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </LetterheadLayout>
       <div style={S.table}>
         {loading ? (
           <div
@@ -8554,6 +8523,12 @@ function SettingsSection() {
   const [waRateTemplate, setWaRateTemplate] = useState("");
   const [gstEnabled, setGstEnabled] = useState(false);
   const [shopGstNumber, setShopGstNumber] = useState("");
+  // Business Profile
+  const [shopName, setShopName] = useState("ClikMate Service Center");
+  const [shopAddress, setShopAddress] = useState("Raipur, C.G.");
+  const [shopPhone, setShopPhone] = useState("+91 9508911400");
+  const [proprietorName, setProprietorName] = useState("Proprietor");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
     fsGetSettings<{
@@ -8571,7 +8546,42 @@ function SettingsSection() {
         }
       })
       .catch(console.error);
+    // Fetch business profile
+    getDoc(doc(db, "settings", "businessProfile"))
+      .then((snap) => {
+        if (snap.exists()) {
+          const d = snap.data() as {
+            shopName?: string;
+            shopAddress?: string;
+            shopPhone?: string;
+            proprietorName?: string;
+          };
+          if (d.shopName) setShopName(d.shopName);
+          if (d.shopAddress) setShopAddress(d.shopAddress);
+          if (d.shopPhone) setShopPhone(d.shopPhone);
+          if (d.proprietorName) setProprietorName(d.proprietorName);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  async function handleSaveBusinessProfile() {
+    setSavingProfile(true);
+    try {
+      await setDoc(doc(db, "settings", "businessProfile"), {
+        shopName,
+        shopAddress,
+        shopPhone,
+        proprietorName,
+      });
+      invalidateLetterheadCache();
+      toast.success("Business profile saved!");
+    } catch {
+      toast.error("Failed to save profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
   const [upiId, setUpiId] = useState("");
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [saving, setSaving] = useState(false);
@@ -8610,6 +8620,142 @@ function SettingsSection() {
 
   return (
     <div style={{ padding: 24 }}>
+      {/* Business Profile Card */}
+      <div style={{ ...S.card, marginBottom: 24 }}>
+        <div
+          style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: "rgba(99,102,241,0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 18,
+            }}
+          >
+            🏪
+          </div>
+          <div>
+            <h3
+              style={{
+                color: "white",
+                fontWeight: 700,
+                fontSize: 15,
+                margin: 0,
+              }}
+            >
+              Business Profile
+            </h3>
+            <p
+              style={{
+                color: "rgba(255,255,255,0.4)",
+                fontSize: 12,
+                margin: 0,
+              }}
+            >
+              Shop details shown on all printed reports and A4 letterheads
+            </p>
+          </div>
+        </div>
+        <div
+          style={{
+            padding: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          {[
+            {
+              label: "Shop Name",
+              value: shopName,
+              setter: setShopName,
+              placeholder: "e.g. ClikMate Service Center",
+            },
+            {
+              label: "Shop Address",
+              value: shopAddress,
+              setter: setShopAddress,
+              placeholder: "e.g. Shop No. 12, Raipur (C.G.)",
+            },
+            {
+              label: "Shop Phone",
+              value: shopPhone,
+              setter: setShopPhone,
+              placeholder: "e.g. +91 9508911400",
+            },
+            {
+              label: "Proprietor Name",
+              value: proprietorName,
+              setter: setProprietorName,
+              placeholder: "e.g. Rajesh Kumar",
+            },
+          ].map(({ label, value, setter, placeholder }) => (
+            <div
+              key={label}
+              style={{ display: "flex", flexDirection: "column", gap: 6 }}
+            >
+              <label
+                htmlFor={`bp-${label.toLowerCase().replace(/\s+/g, "-")}`}
+                style={{
+                  color: "rgba(255,255,255,0.6)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {label}
+              </label>
+              <input
+                id={`bp-${label.toLowerCase().replace(/\s+/g, "-")}`}
+                type="text"
+                value={value}
+                onChange={(e) => setter(e.target.value)}
+                placeholder={placeholder}
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 8,
+                  color: "white",
+                  padding: "9px 12px",
+                  fontSize: 14,
+                  outline: "none",
+                }}
+              />
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={handleSaveBusinessProfile}
+            disabled={savingProfile}
+            style={{
+              padding: "10px 20px",
+              borderRadius: 10,
+              border: "none",
+              background: savingProfile
+                ? "rgba(99,102,241,0.4)"
+                : "rgba(99,102,241,0.8)",
+              color: "white",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: savingProfile ? "not-allowed" : "pointer",
+              marginTop: 4,
+              alignSelf: "flex-start",
+            }}
+          >
+            {savingProfile ? "Saving..." : "💾 Save Business Profile"}
+          </button>
+        </div>
+      </div>
       {/* GST & Tax Settings Card */}
       <div style={{ ...S.card, marginBottom: 24 }}>
         <div
@@ -9652,6 +9798,7 @@ function FactoryResetCard() {
       "orders",
       "khata",
       "attendance",
+      "expenses",
     ];
     try {
       setWiping(true);
@@ -11090,19 +11237,23 @@ function TeamAccessSection() {
       return;
     }
     const today = new Date().toISOString().split("T")[0];
-    const newExpense: ExpenseEntry = {
-      id: Date.now() as unknown as bigint,
+    const newExpense = {
       category: "Staff Salary & Payroll",
       amount,
       date: today,
       paymentMode: "Cash",
       note: `Salary paid to ${member.name} (${member.mobile})`,
       addedBy: "admin",
-      createdAt: Date.now() as unknown as bigint,
+      createdAt: Date.now(),
     };
-    storageAddItem(STORAGE_KEYS.expenses, newExpense);
-    setSalaryInputs((prev) => ({ ...prev, [member.mobile]: "" }));
-    toast.success(`Salary paid to ${member.name} & recorded in Audit.`);
+    try {
+      await fsAddDoc("expenses", newExpense);
+      setSalaryInputs((prev) => ({ ...prev, [member.mobile]: "" }));
+      toast.success(`Salary paid to ${member.name} & recorded in Audit.`);
+    } catch (err) {
+      console.error("Salary save error:", err);
+      toast.error("Failed to save salary payment. Check Firestore connection.");
+    }
   }
 
   return (

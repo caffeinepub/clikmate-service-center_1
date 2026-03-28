@@ -1,44 +1,102 @@
-# ClikMate ERP — Final Production Polish
+# ClikMate ERP — Universal A4 Print Architecture
 
 ## Current State
 
-- `PosPage.tsx` (3930 lines): Has 4 payment modes (Cash, UPI, Split, Khata). `phone` state is used for both Khata mobile and optional customer mobile. Khata standalone mode pushes debt to Firestore. `#pos-receipt-printable` exists for 80mm thermal receipt. ReceiptModal exists but has no WhatsApp send button.
-- `AdminDashboard.tsx` (17408 lines): Has `alertBefore` in catalog items and some inline low-stock badge rendering, but NO dedicated Low Stock Alerts dashboard widget.
-- `index.css` (451 lines): Global `@media print` is A4-oriented — sets `@page { size: A4; }`, shows letterhead, hides `.no-print`. This bleeds into POS thermal print, causing catalog/sidebar to print on bill.
-- `PosPage.tsx` checkout modal: `phone` field is split — shown under Khata mode separately, and separately for non-Khata as optional. No universal "Amount Paid / Amount Due" split payment UI.
+The app has NO standalone `<LetterheadLayout>` React component. Each page has its own isolated, inconsistent print CSS and hardcoded shop info:
+
+- **AdminDashboard.tsx** (17,669 lines): Has 3 print areas:
+  - `#catalog-stock-print-area` — hidden div, uses `position: fixed; inset: 0` approach (causes overlap bugs). Hardcoded shop name/address.
+  - `#live-dashboard-print-area` — uses `visibility: hidden` + `position: absolute` (body-wide), has its own `#print-report-header`. Hardcoded.
+  - `.print-only-table` — Attendance report, same approach. Hardcoded.
+- **KhataSettlementPage.tsx** (1,834 lines): Print CSS injected inline as `<style>` tag in modal. Uses `position: fixed; inset: 0`. Has own hardcoded `print-only` header inside modal.
+- **ExpenseTrackerPage.tsx** (855 lines): Injects `expense-print-styles` style tag. Uses `visibility: hidden` + `#expense-print-area`. Data likely prints blank due to visibility bug.
+- **GstReportsPage.tsx** (829 lines): Has its own `.gst-print-area` CSS. **Exclude from LetterheadLayout (user confirmed — GST Tax Invoice is standalone).**
+- **PosPage.tsx** (4,251 lines): `#pos-receipt-printable` (80mm thermal) + `#pos-gst-invoice-printable` (A4 GST). **Both excluded from LetterheadLayout.**
+- **SettingsSection in AdminDashboard**: No `shopName`, `shopAddress`, `shopPhone`, or `proprietorName` fields. Only has GST settings. Business info is hardcoded everywhere as "ClikMate Smart Online Service Center" / "Shop No. 12, Awanti Vihar, Raipur (C.G.) | Tel: +91 9508911400".
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Low Stock Alerts widget** on AdminDashboard: a red-bordered card showing all catalog products where `quantity <= (alertBefore ?? 5)`, with Item Name, Current Stock, Reorder Level columns. Each row has an "Update Stock" button that renders an inline number input (new received qty) in place, on submit updates Firestore `catalog` doc and refreshes the widget.
-- **WhatsApp Send Bill button** on ReceiptModal (PosPage): Next to "Print Bill". Composes bill text (Shop Name, Bill ID, Date, Items list, Total, Amount Paid, Amount Due). Calls `window.open('https://wa.me/91' + customerMobile + '?text=' + encodeURIComponent(billText))`. If `customerMobile` is empty, show toast: "Please enter Customer Mobile number first."
-- **Universal Split Payment system** in POS CheckoutModal: Replace old 4-mode grid (Cash/UPI/Split/Khata) with: Payment Method buttons (Cash | UPI | Online), then a universal "Amount Paid (₹)" input defaulting to total, auto-calculated "Amount Due (₹)" display = total − amountPaid. If amountDue > 0: Customer Name and Customer Mobile fields become mandatory (red asterisk + validation). When sale completes with amountDue > 0, push to khata collection with description: `"POS Sale - Bill #${invoiceNumber} (Total: ₹${total}, Paid: ₹${amountPaid})"`. Customer name field always visible (previously only for Khata/B2B).
-- **POS Print CSS isolation**: `body.pos-print-mode` CSS class activated during POS thermal print via `document.body.classList.add('pos-print-mode')` before `window.print()` and removed in `window.onafterprint`. This mode sets `@page { size: 80mm auto; margin: 0; }` and shows ONLY `#pos-receipt-printable`, hiding everything else including the global letterhead.
+- `src/frontend/src/components/LetterheadLayout.tsx` — New reusable React component.
+  - Accepts props: `printAreaId: string`, `title: string`, `subtitle?: string`, `children: ReactNode`
+  - On screen: renders `display: none` wrapper (invisible)
+  - On print (when the correct printAreaId is being printed): shows full A4 page with letterhead + children + signature block
+  - Fetches `settings/businessProfile` from Firestore once (module-level cache). Falls back to reasonable defaults if not set.
+  - Header: Shop Name (large, bold), Shop Address, Phone, optional GSTIN
+  - Divider: double border line
+  - Report title (left) + "Printed: DD Month YYYY" (right)
+  - Children: the data table in the middle
+  - Signature block (bottom-right): blank line `________________________`, "Authorized Signatory", "For [shopName]"
+- Business Profile card in `SettingsSection` of AdminDashboard — **at the very top** of the settings page
+  - Fields: Shop Name, Shop Address, Shop Phone, Proprietor Name (maps to Authorized Signatory label)
+  - Saves to Firestore `settings/businessProfile` doc
+  - shopGstNumber stays in the existing GST card but also updates `businessProfile` doc so LetterheadLayout can read a single source
 
 ### Modify
-- **index.css**: Add `body.pos-print-mode @media print` block: `@page { size: 80mm auto; margin: 0; }`, hide everything via `body.pos-print-mode * { visibility: hidden; }` then show only `#pos-receipt-printable` and its children. Ensure the global A4 `@media print` block does NOT activate for POS thermal. Specifically suppress global letterhead when pos-print-mode is active.
-- **PosPage CheckoutModal**: Remove standalone Khata payment mode button. Remove duplicate phone/name fields for Khata vs non-Khata. Consolidate to: single Customer Mobile (optional, mandatory if amountDue>0), single Customer Name (optional, mandatory if amountDue>0), Payment Method (Cash/UPI/Online), Amount Paid input, Amount Due display.
-- **PosPage completeSale()**: Remove old `if (paymentMode === 'Khata' && phone)` khata logic. Add new logic: `if (amountDue > 0 && phone)` then push to khata with the specific description format. Pass `invoiceNumber`, `amountPaid`, `amountDue` through to receipt/onSuccess.
-- **ReceiptModal**: Add "📲 Send on WhatsApp" button. Compose bill text from receipt data. If `receipt.customerMobile` is empty, show toast and abort. Otherwise open wa.me link.
+- **AdminDashboard.tsx — Catalog Stock Report print area** (`#catalog-stock-print-area`):
+  - Replace hardcoded letterhead header inside the div with `<LetterheadLayout printAreaId="catalog-stock-print" title="Stock Report — Catalog Inventory">`
+  - Fix print trigger: inject CSS that shows only `#catalog-stock-print` and hides everything else; add afterprint cleanup
+  - Remove `position: fixed; inset: 0` hack from catalog print area CSS (causes overlap)
+- **AdminDashboard.tsx — Live Dashboard print area** (`#live-dashboard-print-area`):
+  - Replace hardcoded `#print-report-header` with `<LetterheadLayout printAreaId="live-dashboard-print" title="Daily Operations Dashboard">`
+  - Update injected `clikmate-print-styles` to only show `#live-dashboard-print` on print
+- **AdminDashboard.tsx — Attendance print area** (`.print-only-table`):
+  - Replace hardcoded header with `<LetterheadLayout printAreaId="attendance-print" title="Attendance Report">`
+  - Fix visibility approach: use `display: none / block` not `visibility: hidden`
+- **AdminDashboard.tsx — Order History section**:
+  - Add a hidden `<LetterheadLayout printAreaId="order-history-print" title="Order History Report">` with an HTML table of orders
+  - Wire the existing `onPrint` callback to trigger it correctly
+- **KhataSettlementPage.tsx — Khata ledger print area**:
+  - The `.khata-ledger-print-area` modal becomes the LetterheadLayout print area
+  - Replace hardcoded `.print-only` header inside the modal with LetterheadLayout component
+  - Keep the modal UX intact on screen; only the print view changes
+- **ExpenseTrackerPage.tsx — Expense print area**:
+  - Replace the `#expense-print-area` approach with LetterheadLayout wrapping the expense table
+  - Fix the visibility bug (currently `visibility: hidden` means the table likely doesn't print)
+- **index.css**:
+  - Add clean universal `@media print` rule for `#a4-letterhead-print-*` pattern
+  - Remove or neutralize the broken `#clikmate-global-print-letterhead` fixed-position block that causes overlaps
+  - POS thermal `#pos-receipt-printable` and GST invoice `#pos-gst-invoice-printable` rules remain completely untouched
 
 ### Remove
-- Standalone "📒 Add to Khata" payment mode button from the 4-button grid in POS CheckoutModal.
-- Old split Khata/non-Khata conditional phone and name fields in CheckoutModal.
+- All hardcoded shop name/address/phone strings from print areas (replaced by dynamic LetterheadLayout)
+- The broken `position: fixed; inset: 0` CSS on `#catalog-stock-print-area` in index.css
+- The broken `visibility: hidden` body-wide approach in expense and dashboard print CSS (replaced by `display:none/block` approach)
 
 ## Implementation Plan
 
-1. **index.css** — Add `body.pos-print-mode` print block. Ensure A4 letterhead `#clikmate-global-print-letterhead` is suppressed under pos-print-mode. Keep existing A4 `@media print` block for letterhead pages.
+1. **Create `LetterheadLayout.tsx`**:
+   - Module-level cache: `let _businessProfile: BusinessProfile | null = null`
+   - `useEffect` fetches once from Firestore `doc(db, 'settings', 'businessProfile')` and caches
+   - Renders: `<div id={printAreaId} className="a4-letterhead-wrapper">` which is `display:none` on screen
+   - On print (controlled by the calling page's print CSS): displays as white A4 page
+   - Bottom of component always has signature block: `_________________________` line, "Authorized Signatory", "For {shopName}"
 
-2. **PosPage.tsx — CheckoutModal**:
-   - Replace `PaymentMode` type from `"Cash" | "UPI" | "Split" | "Khata"` to `"Cash" | "UPI" | "Online"`
-   - Remove `cashAmount`, `upiAmount`, `khataCustomer` states; add `amountPaid` state (defaults to `subtotal`), `customerName` state
-   - Add `amountDue = subtotal - parseFloat(amountPaid || '0')` computed value
-   - Consolidate customer fields: always show Customer Mobile + Customer Name fields, mark as required when amountDue > 0
-   - Update `completeSale()` validation and khata push logic
-   - Pass `amountPaid`, `amountDue`, `customerName`, `invoiceNumber` in `onSuccess` call
+2. **Business Profile in SettingsSection**:
+   - Add state: `shopName`, `shopAddress`, `shopPhone`, `proprietorName`
+   - Load from `getDoc(doc(db, 'settings', 'businessProfile'))`
+   - Save button writes to `setDoc(doc(db, 'settings', 'businessProfile'), {...})`
+   - Card placed ABOVE the GST card
 
-3. **PosPage.tsx — Print buttons**: When "Print Bill" (thermal) is clicked: `document.body.classList.add('pos-print-mode'); window.print(); window.onafterprint = () => document.body.classList.remove('pos-print-mode')`
+3. **Print mechanism (per page)**:
+   - Each print button injects a one-time `<style>` tag:
+     ```
+     @media print {
+       body > * { display: none !important; }
+       #[printAreaId] { display: block !important; }
+       @page { size: A4 portrait; margin: 15mm; }
+     }
+     ```
+   - Then calls `window.print()`
+   - On `window.afterprint` event: remove the injected style tag
+   - This pattern is clean and reliable across all browsers
 
-4. **PosPage.tsx — ReceiptModal**: Add WhatsApp button. Compose bill text. Handle empty mobile with toast.
+4. **Fix blank data bugs**:
+   - The root cause is `visibility: hidden` + `visibility: visible` pattern: on some browsers, table cells inside a `visibility: visible` container can still inherit the hidden state if the container is `position: absolute`
+   - Fix: use `display: none/block` approach consistently across all print areas
+   - Remove all `position: absolute; left: 0; top: 0; width: 100%` hacks — LetterheadLayout renders as normal block element
+   - Ensure `page-break-inside: avoid` on table rows
 
-5. **AdminDashboard.tsx — Low Stock Alerts widget**: Add to the Live Dashboard area. Fetch from `catalogItems` state (already loaded via onSnapshot). Filter `item.itemType === 'product' && item.quantity <= (item.alertBefore ?? 5)`. For each row, manage inline edit state `{[itemId]: boolean}` and `{[itemId]: string}` for new qty input. On submit: `fsUpdateDoc('catalog', item.productId, { quantity: item.quantity + parseInt(newQty) })` then refresh catalog.
+5. **Wire to 6 pages** (AdminDashboard has 4, KhataSettlement has 1, ExpenseTracker has 1)
+
+6. **Validate and deploy**

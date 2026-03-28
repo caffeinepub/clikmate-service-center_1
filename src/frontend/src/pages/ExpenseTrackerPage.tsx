@@ -1,3 +1,4 @@
+import { LetterheadLayout, triggerPrint } from "@/components/LetterheadLayout";
 import {
   fsAddDoc,
   fsDeleteDoc,
@@ -97,27 +98,6 @@ export default function ExpenseTrackerPage() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only
   useEffect(() => {
     loadExpenses();
-
-    // Inject print styles
-    if (!document.getElementById("expense-print-styles")) {
-      const style = document.createElement("style");
-      style.id = "expense-print-styles";
-      style.textContent = `
-        @media print {
-          body * { visibility: hidden; }
-          #expense-print-area, #expense-print-area * { visibility: visible; }
-          #expense-print-area { position: absolute; left: 0; top: 0; width: 100%; }
-          @page { size: A4; margin: 15mm; }
-          body { background: white !important; color: black !important; }
-          table { width: 100%; border-collapse: collapse; font-size: 12pt; }
-          th, td { border: 1px solid #000; padding: 8px 10px; text-align: left; color: black !important; background: white !important; }
-          th { background: #f2f2f2 !important; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          * { box-shadow: none !important; border-radius: 0 !important; }
-          .no-print { display: none !important; }
-        }
-      `;
-      document.head.appendChild(style);
-    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -490,7 +470,7 @@ export default function ExpenseTrackerPage() {
                 <button
                   type="button"
                   data-ocid="expense.print.button"
-                  onClick={() => window.print()}
+                  onClick={() => triggerPrint("expense-print")}
                   style={{
                     padding: "6px 14px",
                     borderRadius: 999,
@@ -829,6 +809,137 @@ export default function ExpenseTrackerPage() {
           </div>
         </div>
       </div>
+
+      <LetterheadLayout
+        printAreaId="expense-print"
+        title="Expense Book Report"
+        subtitle={start === "1970-01-01" ? "All Time" : `${start} to ${end}`}
+      >
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", marginTop: 15 }}
+        >
+          <thead>
+            <tr>
+              {[
+                "Date",
+                "Category",
+                "Description",
+                "Amount (₹)",
+                "Added By",
+              ].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    background: "#f2f2f2",
+                    fontWeight: "bold",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((exp) => (
+              <tr key={exp.id}>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {exp.date}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {exp.category}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {exp.description || "—"}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                    textAlign: "right",
+                  }}
+                >
+                  ₹{Number(exp.amount || 0).toLocaleString("en-IN")}
+                </td>
+                <td
+                  style={{
+                    border: "1px solid #000",
+                    padding: "8px 10px",
+                    fontSize: "12pt",
+                    color: "#000",
+                  }}
+                >
+                  {exp.addedBy || "—"}
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <td
+                colSpan={3}
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  fontSize: "12pt",
+                  color: "#000",
+                  textAlign: "right",
+                  fontWeight: "bold",
+                }}
+              >
+                Total:
+              </td>
+              <td
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  fontSize: "12pt",
+                  color: "#000",
+                  textAlign: "right",
+                  fontWeight: "bold",
+                }}
+              >
+                ₹
+                {filtered
+                  .reduce((s, e) => s + Number(e.amount || 0), 0)
+                  .toLocaleString("en-IN")}
+              </td>
+              <td
+                style={{
+                  border: "1px solid #000",
+                  padding: "8px 10px",
+                  fontSize: "12pt",
+                  color: "#000",
+                }}
+              />
+            </tr>
+          </tbody>
+        </table>
+      </LetterheadLayout>
 
       {/* Footer */}
       <div

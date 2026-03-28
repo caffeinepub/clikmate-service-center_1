@@ -74,7 +74,12 @@ interface CartItem {
   meta?: string; // e.g. "12 pages × 2 copies"
 }
 
-type PaymentMode = "Cash" | "UPI" | "Online";
+type PaymentMode =
+  | "Cash"
+  | "UPI"
+  | "Online"
+  | "Split_Cash_UPI"
+  | "Split_Cash_Khata";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const today = () => new Date().toDateString();
@@ -465,8 +470,23 @@ function CatalogPanel({
     );
 
   function handleItemClick(item: CatalogItem) {
-    setModalItem(item);
+    // If item already in cart and it is a simple service (no PDF calc),
+    // just increment qty directly without opening a modal.
+    const alreadyInCart = (window as any).__pos_cart_ref?.find(
+      (c: any) => c.id === (item.productId || String(item.id)),
+    );
     const isService = item.itemType === "service";
+    if (alreadyInCart && isService && !item.requiresPdfCalc) {
+      dispatchAddToCart({
+        id: item.productId || String(item.id),
+        name: item.name,
+        qty: 1,
+        unitPrice: Number(item.saleRate ?? item.price ?? 0),
+        total: Number(item.saleRate ?? item.price ?? 0),
+      });
+      return;
+    }
+    setModalItem(item);
     if (!isService) {
       setModalType("product");
     } else if (item.requiresPdfCalc) {
@@ -1557,9 +1577,86 @@ function BillingPanel({
               </p>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
-                ×{item.qty}
+              <button
+                type="button"
+                onClick={() => {
+                  setCart((prev) =>
+                    prev
+                      .map((c) =>
+                        c.id === item.id && c.qty > 1
+                          ? {
+                              ...c,
+                              qty: c.qty - 1,
+                              total: (c.qty - 1) * c.unitPrice,
+                            }
+                          : c,
+                      )
+                      .filter(
+                        (c) => !(c.id === item.id && c.qty <= 1) || c.qty > 1,
+                      ),
+                  );
+                  if (item.qty <= 1) removeItem(item.id);
+                }}
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.05)",
+                  color: "white",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}
+              >
+                −
+              </button>
+              <span
+                style={{
+                  color: "white",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  minWidth: 20,
+                  textAlign: "center",
+                }}
+              >
+                {item.qty}
               </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCart((prev) =>
+                    prev.map((c) =>
+                      c.id === item.id
+                        ? {
+                            ...c,
+                            qty: c.qty + 1,
+                            total: (c.qty + 1) * c.unitPrice,
+                          }
+                        : c,
+                    ),
+                  )
+                }
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  border: "1px solid rgba(0,255,255,0.3)",
+                  background: "rgba(0,255,255,0.07)",
+                  color: "#06b6d4",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}
+              >
+                +
+              </button>
               <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
                 @
               </span>
@@ -1795,6 +1892,9 @@ function CheckoutModal({
 }) {
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
   const [amountPaid, setAmountPaid] = useState(subtotal.toFixed(2));
+  const [cashAmount, setCashAmount] = useState("");
+  const [upiAmount, setUpiAmount] = useState("");
+  const [amountTendered, setAmountTendered] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState(customerMobile);
   const [saving, setSaving] = useState(false);
@@ -1802,6 +1902,10 @@ function CheckoutModal({
   const amountDue = Math.max(
     0,
     subtotal - Number.parseFloat(amountPaid || "0"),
+  );
+  const returnAmount = Math.max(
+    0,
+    Number.parseFloat(amountTendered || "0") - subtotal,
   );
   const [b2bCustomerName, setB2bCustomerName] = useState("");
   const [b2bCustomerGstin, setB2bCustomerGstin] = useState("");
@@ -1837,11 +1941,16 @@ function CheckoutModal({
   const grandTotal = subtotal + (isGstInvoice ? totalTax : 0);
 
   async function completeSale() {
-    if (amountDue > 0 && !phone) {
+    // For Split_Cash_Khata, amountDue = balance going to Khata
+    const effectiveAmountDue =
+      paymentMode === "Split_Cash_Khata"
+        ? Math.max(0, subtotal - Number.parseFloat(amountPaid || "0"))
+        : amountDue;
+    if (effectiveAmountDue > 0 && !phone) {
       toast.error("Customer Mobile is mandatory when there is an Amount Due.");
       return;
     }
-    if (amountDue > 0 && !customerName && !phone) {
+    if (effectiveAmountDue > 0 && !customerName && !phone) {
       toast.error("Customer Name is mandatory when there is an Amount Due.");
       return;
     }
@@ -1926,14 +2035,18 @@ function CheckoutModal({
         }
       }
 
-      if (amountDue > 0 && phone) {
+      const finalAmountDue =
+        paymentMode === "Split_Cash_Khata"
+          ? Math.max(0, subtotal - Number.parseFloat(amountPaid || "0"))
+          : amountDue;
+      if (finalAmountDue > 0 && phone) {
         const khataList = await fsGetCollection<any>("khata");
         const existing = khataList.find((e: any) => e.phone === phone);
         const invoiceNum = (newSale as any).invoiceNumber || `#SO-${saleId}`;
         const khataDescription = `POS Sale - Bill #${invoiceNum} (Total: ₹${subtotal.toFixed(2)}, Paid: ₹${Number.parseFloat(amountPaid || "0").toFixed(2)})`;
         if (existing) {
           await fsUpdateDoc("khata", existing.phone, {
-            totalDue: (existing.totalDue || 0) + amountDue,
+            totalDue: (existing.totalDue || 0) + finalAmountDue,
             lastUpdated: Date.now(),
             lastNote: khataDescription,
           });
@@ -1942,7 +2055,7 @@ function CheckoutModal({
             phone,
             customerName: customerName || phone,
             name: customerName || phone,
-            totalDue: amountDue,
+            totalDue: finalAmountDue,
             description: khataDescription,
             createdAt: Date.now(),
             lastUpdated: Date.now(),
@@ -1979,7 +2092,8 @@ function CheckoutModal({
   const modes: { key: PaymentMode; label: string; color: string }[] = [
     { key: "Cash", label: "💵 Cash", color: "#10b981" },
     { key: "UPI", label: "📱 UPI", color: "#3b82f6" },
-    { key: "Online", label: "🌐 Online", color: "#8b5cf6" },
+    { key: "Split_Cash_UPI", label: "💵+📱 Cash & UPI", color: "#f59e0b" },
+    { key: "Split_Cash_Khata", label: "💵+📒 Cash & Khata", color: "#8b5cf6" },
   ];
 
   return (
@@ -2285,12 +2399,54 @@ function CheckoutModal({
           </div>
         </div>
 
-        {/* Universal Split Payment Fields */}
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
-        >
+        {/* Tally-like Split Payment & Change Calculator */}
+        {paymentMode === "Split_Cash_UPI" && (
+          <div
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+          >
+            <div>
+              <p style={lblStyle}>Cash Amount (₹)</p>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={cashAmount}
+                onChange={(e) => {
+                  setCashAmount(e.target.value);
+                  setAmountPaid(
+                    String(
+                      Number(e.target.value || 0) + Number(upiAmount || 0),
+                    ),
+                  );
+                }}
+                style={posInput}
+                placeholder="Cash received"
+              />
+            </div>
+            <div>
+              <p style={lblStyle}>UPI Amount (₹)</p>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={upiAmount}
+                onChange={(e) => {
+                  setUpiAmount(e.target.value);
+                  setAmountPaid(
+                    String(
+                      Number(cashAmount || 0) + Number(e.target.value || 0),
+                    ),
+                  );
+                }}
+                style={posInput}
+                placeholder="UPI received"
+              />
+            </div>
+          </div>
+        )}
+        {paymentMode === "Split_Cash_Khata" && (
           <div>
-            <p style={lblStyle}>Amount Paid (₹){amountDue > 0 ? "" : ""}</p>
+            <p style={lblStyle}>Cash Paid Now (₹) — balance goes to Khata</p>
             <input
               data-ocid="pos.checkout.amount_paid.input"
               type="number"
@@ -2300,39 +2456,109 @@ function CheckoutModal({
               value={amountPaid}
               onChange={(e) => setAmountPaid(e.target.value)}
               style={posInput}
-              placeholder="Amount received"
+              placeholder="Cash paid now"
             />
           </div>
-          <div>
-            <p
-              style={{
-                ...lblStyle,
-                color: amountDue > 0 ? "#ef4444" : "rgba(255,255,255,0.5)",
-              }}
-            >
-              Amount Due (₹)
-            </p>
-            <div
-              style={{
-                ...posInput,
-                background:
-                  amountDue > 0
-                    ? "rgba(239,68,68,0.12)"
-                    : "rgba(255,255,255,0.03)",
-                border: `1px solid ${amountDue > 0 ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.1)"}`,
-                color: amountDue > 0 ? "#ef4444" : "rgba(255,255,255,0.4)",
-                fontWeight: amountDue > 0 ? 700 : 400,
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              ₹{amountDue.toFixed(2)}
-              {amountDue > 0 && (
-                <span style={{ marginLeft: 4, fontSize: 10 }}>→ Khata</span>
-              )}
+        )}
+        {(paymentMode === "Cash" || paymentMode === "UPI") && (
+          <div
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+          >
+            <div>
+              <p style={lblStyle}>Amount Paid (₹)</p>
+              <input
+                data-ocid="pos.checkout.amount_paid.input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+                style={posInput}
+                placeholder="Amount received"
+              />
+            </div>
+            <div>
+              <p
+                style={{
+                  ...lblStyle,
+                  color: amountDue > 0 ? "#ef4444" : "rgba(255,255,255,0.5)",
+                }}
+              >
+                Amount Due (₹)
+              </p>
+              <div
+                style={{
+                  ...posInput,
+                  background:
+                    amountDue > 0
+                      ? "rgba(239,68,68,0.12)"
+                      : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${amountDue > 0 ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.1)"}`,
+                  color: amountDue > 0 ? "#ef4444" : "rgba(255,255,255,0.4)",
+                  fontWeight: amountDue > 0 ? 700 : 400,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                ₹{amountDue.toFixed(2)}
+                {amountDue > 0 && (
+                  <span style={{ marginLeft: 4, fontSize: 10 }}>→ Khata</span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
+        {/* Change Calculator — visible for Cash modes */}
+        {(paymentMode === "Cash" ||
+          paymentMode === "Split_Cash_UPI" ||
+          paymentMode === "Split_Cash_Khata") && (
+          <div
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+          >
+            <div>
+              <p style={lblStyle}>Amount Tendered (₹)</p>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={amountTendered}
+                onChange={(e) => setAmountTendered(e.target.value)}
+                style={{
+                  ...posInput,
+                  border: "1px solid rgba(251,191,36,0.4)",
+                }}
+                placeholder="Cash given by customer"
+              />
+            </div>
+            <div>
+              <p
+                style={{
+                  ...lblStyle,
+                  color: returnAmount > 0 ? "#10b981" : "rgba(255,255,255,0.5)",
+                }}
+              >
+                Return / Change (₹)
+              </p>
+              <div
+                style={{
+                  ...posInput,
+                  background:
+                    returnAmount > 0
+                      ? "rgba(16,185,129,0.12)"
+                      : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${returnAmount > 0 ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.1)"}`,
+                  color: returnAmount > 0 ? "#10b981" : "rgba(255,255,255,0.4)",
+                  fontWeight: returnAmount > 0 ? 800 : 400,
+                  fontSize: returnAmount > 0 ? 16 : 13,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                {returnAmount > 0 ? `₹${returnAmount.toFixed(2)}` : "—"}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Customer fields - required if amountDue > 0 */}
         <div>
