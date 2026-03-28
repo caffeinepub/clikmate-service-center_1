@@ -449,3 +449,41 @@
     transform: rotate(360deg);
   }
 }
+
+/* ─── POS Thermal Print Mode (80mm receipt isolation) ──── */
+@media print {
+  body.pos-print-mode * {
+    visibility: hidden !important;
+  }
+
+  body.pos-print-mode #pos-receipt-printable,
+  body.pos-print-mode #pos-receipt-printable * {
+    visibility: visible !important;
+  }
+
+  body.pos-print-mode #pos-receipt-printable {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 80mm !important;
+    background: white !important;
+    color: black !important;
+    padding: 4mm !important;
+    font-size: 10pt !important;
+    font-family: "Courier New", monospace !important;
+  }
+
+  body.pos-print-mode #clikmate-global-print-letterhead {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.pos-print-mode nav,
+  body.pos-print-mode header,
+  body.pos-print-mode aside,
+  body.pos-print-mode footer,
+  body.pos-print-mode .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}

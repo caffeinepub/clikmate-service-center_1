@@ -4488,6 +4488,8 @@ function LiveOperationalDashboard() {
   >("today");
   const [allExpenses, setAllExpenses] = useState<any[]>([]);
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  const [stockEditId, setStockEditId] = useState<string | null>(null);
+  const [stockAddQty, setStockAddQty] = useState("");
 
   const loadOrders = async () => {
     try {
@@ -5236,6 +5238,260 @@ function LiveOperationalDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Low Stock Alerts Widget */}
+        {(() => {
+          const lowStockItems = catalogItems.filter(
+            (item: any) =>
+              item.itemType === "product" &&
+              typeof item.quantity === "number" &&
+              item.quantity <= (item.alertBefore ?? item.reorderLevel ?? 5),
+          );
+          if (lowStockItems.length === 0) return null;
+          return (
+            <div
+              className="no-print"
+              style={{
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.35)",
+                borderRadius: 14,
+                padding: "18px 20px",
+                marginBottom: 4,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 14,
+                }}
+              >
+                <span style={{ fontSize: 18 }}>⚠️</span>
+                <h3
+                  style={{
+                    color: "#ef4444",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    margin: 0,
+                  }}
+                >
+                  Low Stock Alerts
+                </h3>
+                <span
+                  style={{
+                    background: "#ef4444",
+                    color: "white",
+                    borderRadius: 99,
+                    padding: "2px 8px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                >
+                  {lowStockItems.length}
+                </span>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 12,
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      {[
+                        "Item Name",
+                        "Product ID",
+                        "Current Stock",
+                        "Reorder Level",
+                        "Action",
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            padding: "6px 10px",
+                            textAlign: "left",
+                            color: "rgba(255,255,255,0.5)",
+                            fontWeight: 600,
+                            borderBottom: "1px solid rgba(255,255,255,0.08)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lowStockItems.map((item: any, idx: number) => (
+                      <tr key={item.productId || idx}>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            color: "white",
+                            borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          }}
+                        >
+                          {item.name}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            color: "#06b6d4",
+                            fontFamily: "monospace",
+                            borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          }}
+                        >
+                          {item.productId || "-"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            color: "#ef4444",
+                            fontWeight: 700,
+                            borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          }}
+                        >
+                          {item.quantity}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            color: "rgba(255,255,255,0.5)",
+                            borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          }}
+                        >
+                          {item.alertBefore ?? item.reorderLevel ?? 5}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          }}
+                        >
+                          {stockEditId === item.productId ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                alignItems: "center",
+                              }}
+                            >
+                              <input
+                                data-ocid={`dashboard.stock_update.input.${idx + 1}`}
+                                type="number"
+                                min="1"
+                                value={stockAddQty}
+                                onChange={(e) => setStockAddQty(e.target.value)}
+                                placeholder="Add qty"
+                                style={{
+                                  width: 70,
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                  border: "1px solid rgba(255,255,255,0.2)",
+                                  background: "rgba(255,255,255,0.07)",
+                                  color: "white",
+                                  fontSize: 12,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                data-ocid={`dashboard.stock_save.button.${idx + 1}`}
+                                onClick={async () => {
+                                  const addQty = Number.parseInt(
+                                    stockAddQty,
+                                    10,
+                                  );
+                                  if (!addQty || addQty <= 0) return;
+                                  try {
+                                    const newQty =
+                                      (item.quantity || 0) + addQty;
+                                    await fsUpdateDoc(
+                                      "catalog",
+                                      item.productId,
+                                      { quantity: newQty },
+                                    );
+                                    setCatalogItems((prev: any[]) =>
+                                      prev.map((ci: any) =>
+                                        ci.productId === item.productId
+                                          ? { ...ci, quantity: newQty }
+                                          : ci,
+                                      ),
+                                    );
+                                    toast.success(
+                                      `Stock updated for ${item.name}`,
+                                    );
+                                    setStockEditId(null);
+                                    setStockAddQty("");
+                                  } catch {
+                                    toast.error("Failed to update stock.");
+                                  }
+                                }}
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: 6,
+                                  border: "1px solid rgba(16,185,129,0.4)",
+                                  background: "rgba(16,185,129,0.15)",
+                                  color: "#10b981",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                ✓ Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStockEditId(null);
+                                  setStockAddQty("");
+                                }}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                  border: "1px solid rgba(255,255,255,0.1)",
+                                  background: "transparent",
+                                  color: "rgba(255,255,255,0.4)",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              data-ocid={`dashboard.stock_update.button.${idx + 1}`}
+                              onClick={() => {
+                                setStockEditId(item.productId);
+                                setStockAddQty("");
+                              }}
+                              style={{
+                                padding: "4px 12px",
+                                borderRadius: 6,
+                                border: "1px solid rgba(245,158,11,0.4)",
+                                background: "rgba(245,158,11,0.12)",
+                                color: "#f59e0b",
+                                cursor: "pointer",
+                                fontSize: 11,
+                                fontWeight: 600,
+                              }}
+                            >
+                              Update Stock
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Period Metrics: Revenue, COGS, Expenses, Net Profit */}
         <div

@@ -74,7 +74,7 @@ interface CartItem {
   meta?: string; // e.g. "12 pages × 2 copies"
 }
 
-type PaymentMode = "Cash" | "UPI" | "Split" | "Khata";
+type PaymentMode = "Cash" | "UPI" | "Online";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const today = () => new Date().toDateString();
@@ -1773,6 +1773,8 @@ function CheckoutModal({
     total: number;
     paymentMode: string;
     customerMobile: string;
+    amountPaid?: number;
+    amountDue?: number;
     isGstInvoice?: boolean;
     customerName?: string;
     customerGstin?: string;
@@ -1792,12 +1794,15 @@ function CheckoutModal({
   }) => void;
 }) {
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
-  const [cashAmount, setCashAmount] = useState("");
-  const [upiAmount, setUpiAmount] = useState("");
-  const [khataCustomer, setKhataCustomer] = useState("");
+  const [amountPaid, setAmountPaid] = useState(subtotal.toFixed(2));
+  const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState(customerMobile);
   const [saving, setSaving] = useState(false);
   const [isGstInvoice, setIsGstInvoice] = useState(false);
+  const amountDue = Math.max(
+    0,
+    subtotal - Number.parseFloat(amountPaid || "0"),
+  );
   const [b2bCustomerName, setB2bCustomerName] = useState("");
   const [b2bCustomerGstin, setB2bCustomerGstin] = useState("");
 
@@ -1832,8 +1837,12 @@ function CheckoutModal({
   const grandTotal = subtotal + (isGstInvoice ? totalTax : 0);
 
   async function completeSale() {
-    if (paymentMode === "Khata" && !phone) {
-      toast.error("Customer mobile is required for Khata.");
+    if (amountDue > 0 && !phone) {
+      toast.error("Customer Mobile is mandatory when there is an Amount Due.");
+      return;
+    }
+    if (amountDue > 0 && !customerName && !phone) {
+      toast.error("Customer Name is mandatory when there is an Amount Due.");
       return;
     }
     if (isGstInvoice && (!b2bCustomerName || !b2bCustomerGstin)) {
@@ -1853,6 +1862,8 @@ function CheckoutModal({
         })),
         totalAmount: isGstInvoice ? grandTotal : subtotal,
         paymentMethod: paymentMode,
+        amountPaid: Number.parseFloat(amountPaid || "0"),
+        amountDue: amountDue,
         customerPhone: phone,
         staffMobile,
         createdAt: Date.now(),
@@ -1915,19 +1926,24 @@ function CheckoutModal({
         }
       }
 
-      if (paymentMode === "Khata" && phone) {
+      if (amountDue > 0 && phone) {
         const khataList = await fsGetCollection<any>("khata");
         const existing = khataList.find((e: any) => e.phone === phone);
+        const invoiceNum = (newSale as any).invoiceNumber || `#SO-${saleId}`;
+        const khataDescription = `POS Sale - Bill #${invoiceNum} (Total: ₹${subtotal.toFixed(2)}, Paid: ₹${Number.parseFloat(amountPaid || "0").toFixed(2)})`;
         if (existing) {
           await fsUpdateDoc("khata", existing.phone, {
-            totalDue: (existing.totalDue || 0) + subtotal,
+            totalDue: (existing.totalDue || 0) + amountDue,
+            lastUpdated: Date.now(),
+            lastNote: khataDescription,
           });
         } else {
           await fsAddDoc("khata", {
             phone,
-            customerName: khataCustomer || phone,
-            name: khataCustomer || phone,
-            totalDue: subtotal,
+            customerName: customerName || phone,
+            name: customerName || phone,
+            totalDue: amountDue,
+            description: khataDescription,
             createdAt: Date.now(),
             lastUpdated: Date.now(),
           });
@@ -1940,8 +1956,10 @@ function CheckoutModal({
         total: isGstInvoice ? grandTotal : subtotal,
         paymentMode,
         customerMobile: phone,
+        amountPaid: Number.parseFloat(amountPaid || "0"),
+        amountDue: amountDue,
+        customerName: isGstInvoice ? b2bCustomerName : customerName,
         isGstInvoice,
-        customerName: isGstInvoice ? b2bCustomerName : "",
         customerGstin: isGstInvoice ? b2bCustomerGstin : "",
         cgstAmount: isGstInvoice ? cgstAmount : 0,
         sgstAmount: isGstInvoice ? sgstAmount : 0,
@@ -1961,8 +1979,7 @@ function CheckoutModal({
   const modes: { key: PaymentMode; label: string; color: string }[] = [
     { key: "Cash", label: "💵 Cash", color: "#10b981" },
     { key: "UPI", label: "📱 UPI", color: "#3b82f6" },
-    { key: "Split", label: "✂️ Split", color: "#8b5cf6" },
-    { key: "Khata", label: "📒 Add to Khata", color: "#ef4444" },
+    { key: "Online", label: "🌐 Online", color: "#8b5cf6" },
   ];
 
   return (
@@ -2268,76 +2285,99 @@ function CheckoutModal({
           </div>
         </div>
 
-        {/* Split amounts */}
-        {paymentMode === "Split" && (
-          <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
-          >
-            <div>
-              <p style={lblStyle}>Cash (₹)</p>
-              <input
-                data-ocid="pos.split.cash.input"
-                type="number"
-                value={cashAmount}
-                onChange={(e) => setCashAmount(e.target.value)}
-                style={posInput}
-              />
-            </div>
-            <div>
-              <p style={lblStyle}>UPI (₹)</p>
-              <input
-                data-ocid="pos.split.upi.input"
-                type="number"
-                value={upiAmount}
-                onChange={(e) => setUpiAmount(e.target.value)}
-                style={posInput}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Khata fields */}
-        {paymentMode === "Khata" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div>
-              <p style={lblStyle}>Customer Mobile *</p>
-              <input
-                data-ocid="pos.khata.mobile.input"
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                style={posInput}
-                placeholder="10-digit mobile"
-              />
-            </div>
-            <div>
-              <p style={lblStyle}>Customer Name</p>
-              <input
-                data-ocid="pos.khata.name.input"
-                type="text"
-                value={khataCustomer}
-                onChange={(e) => setKhataCustomer(e.target.value)}
-                style={posInput}
-                placeholder="Name (optional)"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Customer mobile (for non-khata) */}
-        {paymentMode !== "Khata" && (
+        {/* Universal Split Payment Fields */}
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+        >
           <div>
-            <p style={lblStyle}>Customer Mobile (optional)</p>
+            <p style={lblStyle}>Amount Paid (₹){amountDue > 0 ? "" : ""}</p>
             <input
-              data-ocid="pos.checkout.mobile.input"
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              data-ocid="pos.checkout.amount_paid.input"
+              type="number"
+              min="0"
+              max={subtotal}
+              step="0.01"
+              value={amountPaid}
+              onChange={(e) => setAmountPaid(e.target.value)}
               style={posInput}
-              placeholder="Link to Digital Vault"
+              placeholder="Amount received"
             />
           </div>
-        )}
+          <div>
+            <p
+              style={{
+                ...lblStyle,
+                color: amountDue > 0 ? "#ef4444" : "rgba(255,255,255,0.5)",
+              }}
+            >
+              Amount Due (₹)
+            </p>
+            <div
+              style={{
+                ...posInput,
+                background:
+                  amountDue > 0
+                    ? "rgba(239,68,68,0.12)"
+                    : "rgba(255,255,255,0.03)",
+                border: `1px solid ${amountDue > 0 ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.1)"}`,
+                color: amountDue > 0 ? "#ef4444" : "rgba(255,255,255,0.4)",
+                fontWeight: amountDue > 0 ? 700 : 400,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              ₹{amountDue.toFixed(2)}
+              {amountDue > 0 && (
+                <span style={{ marginLeft: 4, fontSize: 10 }}>→ Khata</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Customer fields - required if amountDue > 0 */}
+        <div>
+          <p style={lblStyle}>
+            Customer Mobile{" "}
+            {amountDue > 0 ? (
+              <span style={{ color: "#ef4444" }}>
+                * (required for due amount)
+              </span>
+            ) : (
+              <span style={{ color: "rgba(255,255,255,0.3)" }}>(optional)</span>
+            )}
+          </p>
+          <input
+            data-ocid="pos.checkout.mobile.input"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            style={{
+              ...posInput,
+              border: `1px solid ${amountDue > 0 && !phone ? "rgba(239,68,68,0.6)" : "rgba(255,255,255,0.1)"}`,
+            }}
+            placeholder="10-digit mobile"
+          />
+        </div>
+        <div>
+          <p style={lblStyle}>
+            Customer Name{" "}
+            {amountDue > 0 ? (
+              <span style={{ color: "#ef4444" }}>
+                * (required for due amount)
+              </span>
+            ) : (
+              <span style={{ color: "rgba(255,255,255,0.3)" }}>(optional)</span>
+            )}
+          </p>
+          <input
+            data-ocid="pos.checkout.customer_name.input"
+            type="text"
+            value={customerName}
+            onChange={(e) => setCustomerName(e.target.value)}
+            style={posInput}
+            placeholder="Customer name"
+          />
+        </div>
 
         <button
           type="button"
@@ -2364,6 +2404,8 @@ function ReceiptModal({
     total: number;
     paymentMode: string;
     customerMobile: string;
+    amountPaid?: number;
+    amountDue?: number;
     isGstInvoice?: boolean;
     customerName?: string;
     customerGstin?: string;
@@ -2386,6 +2428,35 @@ function ReceiptModal({
   const now = new Date();
   const dateStr = now.toLocaleString("en-IN");
   const gstSettingsR = getGstSettings();
+
+  function handleThermalPrint() {
+    document.body.classList.add("pos-print-mode");
+    window.print();
+    const cleanup = () => {
+      document.body.classList.remove("pos-print-mode");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    setTimeout(() => document.body.classList.remove("pos-print-mode"), 3000);
+  }
+
+  function sendOnWhatsApp() {
+    if (!receipt.customerMobile) {
+      toast.error("Please enter Customer Mobile number first.");
+      return;
+    }
+    const shopName = "Smart Online Service Center (ClikMate)";
+    const itemsText = receipt.items
+      .map((i) => `  - ${i.name} x${i.qty}: ₹${i.total.toFixed(2)}`)
+      .join("\n");
+    const amountDue = receipt.amountDue || 0;
+    const amountPaidVal = receipt.amountPaid ?? receipt.total;
+    const billText = `*${shopName}*\n\n📋 *Bill Summary*\nBill ID: ${receipt.id}\nDate: ${now.toLocaleString("en-IN")}\n\n*Items:*\n${itemsText}\n\n*Total: ₹${receipt.total.toFixed(2)}*\nPaid: ₹${typeof amountPaidVal === "number" ? amountPaidVal.toFixed(2) : amountPaidVal}\n${amountDue > 0 ? `⚠️ Amount Due: ₹${amountDue.toFixed(2)}` : "✅ Fully Paid"}\n\nThank you for visiting! 🙏`;
+    window.open(
+      `https://wa.me/91${receipt.customerMobile}?text=${encodeURIComponent(billText)}`,
+      "_blank",
+    );
+  }
   const isIntra =
     (receipt.customerGstin?.substring(0, 2) || "") ===
     (gstSettingsR.shopGstNumber.substring(0, 2) || "");
@@ -3025,7 +3096,7 @@ function ReceiptModal({
           <button
             type="button"
             data-ocid="pos.receipt.print_button"
-            onClick={() => window.print()}
+            onClick={handleThermalPrint}
             style={{
               flex: 1,
               padding: "9px",
@@ -3043,6 +3114,28 @@ function ReceiptModal({
             }}
           >
             <Printer size={13} /> Print
+          </button>
+          <button
+            type="button"
+            data-ocid="pos.receipt.whatsapp_button"
+            onClick={sendOnWhatsApp}
+            style={{
+              flex: 1,
+              padding: "9px",
+              borderRadius: 8,
+              border: "1px solid rgba(37,211,102,0.4)",
+              background: "rgba(37,211,102,0.12)",
+              color: "#25d366",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+            }}
+          >
+            📲 WhatsApp
           </button>
           <button
             type="button"
@@ -3067,6 +3160,7 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
       paymentMethod: string;
       customerPhone: string;
       createdAt: bigint;
+      amountDue?: number;
     }>
   >([]);
   const [loadingSales, setLoadingSales] = useState(false);
@@ -3400,11 +3494,12 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
             const filtered =
               tallyFilter === "Net Sales"
                 ? todaySales
-                : todaySales.filter(
-                    (s) =>
-                      s.paymentMethod ===
-                      (tallyFilter === "Khata/Due" ? "Khata" : tallyFilter),
-                  );
+                : tallyFilter === "Khata/Due"
+                  ? todaySales.filter(
+                      (s) =>
+                        (s.amountDue ?? 0) > 0 || s.paymentMethod === "Khata",
+                    )
+                  : todaySales.filter((s) => s.paymentMethod === tallyFilter);
             if (filtered.length === 0) {
               return (
                 <p
