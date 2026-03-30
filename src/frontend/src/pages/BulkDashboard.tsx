@@ -581,19 +581,39 @@ export default function BulkDashboard() {
   const [draggingId, setDraggingId] = useState<bigint | null>(null);
   const [dragOverCol, setDragOverCol] = useState<ColumnKey | null>(null);
 
-  // ── Route guard: only Bulk Staff or Super Admin ──
+  // ── Route guard: Bulk Staff, Super Admin, or staffSession with Bulk Service role ──
   const bulkSession = localStorage.getItem("bulkSession");
   const adminSession = localStorage.getItem("clikmate_admin_session");
+  const hasBulkStaffSession = (() => {
+    try {
+      const s = localStorage.getItem("staffSession");
+      if (!s) return false;
+      const parsed = JSON.parse(s);
+      const roles: string[] = Array.isArray(parsed.roles)
+        ? parsed.roles
+        : parsed.role
+          ? [parsed.role]
+          : [];
+      return roles.some(
+        (r) =>
+          r.toLowerCase() === "bulk service" ||
+          r.toLowerCase() === "bulk_service",
+      );
+    } catch {
+      return false;
+    }
+  })();
+  const isAuthorized = !!(bulkSession || adminSession || hasBulkStaffSession);
 
   useEffect(() => {
-    if (!bulkSession && !adminSession) {
-      navigate("/portal");
+    if (!isAuthorized) {
+      navigate("/login");
     }
-  }, [bulkSession, adminSession, navigate]);
+  }, [isAuthorized, navigate]);
 
   // ── Fetch B2B leads only ──
   useEffect(() => {
-    if (!bulkSession && !adminSession) return;
+    if (!isAuthorized) return;
     (async () => {
       setLoading(true);
       try {
@@ -612,12 +632,13 @@ export default function BulkDashboard() {
         setLoading(false);
       }
     })();
-    // biome-ignore lint/correctness/useExhaustiveDependencies: actor re-fetch handled by session changes
-  }, [bulkSession, adminSession, actor]);
+  }, [isAuthorized, actor]);
 
   const sessionMobile = (() => {
     try {
-      return JSON.parse(bulkSession ?? "{}").mobile ?? "";
+      // Try bulkSession first, then staffSession
+      const s = bulkSession ?? localStorage.getItem("staffSession") ?? "{}";
+      return JSON.parse(s).mobile ?? "";
     } catch {
       return "";
     }
@@ -625,7 +646,18 @@ export default function BulkDashboard() {
 
   const logout = () => {
     localStorage.removeItem("bulkSession");
-    navigate("/portal");
+    // If logged in via staffSession with Bulk Service role, clear that too
+    try {
+      const s = localStorage.getItem("staffSession");
+      if (s) {
+        const parsed = JSON.parse(s);
+        const roles: string[] = Array.isArray(parsed.roles) ? parsed.roles : [];
+        if (roles.length <= 1) localStorage.removeItem("staffSession");
+      }
+    } catch {
+      /* ignore */
+    }
+    navigate("/login");
   };
 
   // ── Drag & drop ──
@@ -664,7 +696,7 @@ export default function BulkDashboard() {
       setSelectedLead((prev) => (prev ? { ...prev, ...updated } : prev));
   };
 
-  if (!bulkSession && !adminSession) return null;
+  if (!isAuthorized) return null;
 
   return (
     <div

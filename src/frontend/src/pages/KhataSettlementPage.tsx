@@ -3,9 +3,11 @@ import BackButton from "@/components/BackButton";
 import { LetterheadLayout, triggerPrint } from "@/components/LetterheadLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { db } from "@/firebase";
 import { fsGetCollection, fsUpdateDoc } from "@/utils/firestoreService";
 import { formatDateTime } from "@/utils/formatDateTime";
 import { useNavigate } from "@/utils/router";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import {
   ArrowLeft,
   BookOpen,
@@ -254,9 +256,63 @@ export default function KhataSettlementPage() {
   const [reference, setReference] = useState("");
   const [sendWhatsApp, setSendWhatsApp] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [realLedgerEvents, setRealLedgerEvents] = useState<LedgerEvent[]>([]);
 
   // Ledger modal
   const [showLedger, setShowLedger] = useState(false);
+
+  // Fetch real ledger history when selectedEntry changes
+  useEffect(() => {
+    if (!selectedEntry) {
+      setRealLedgerEvents([]);
+      return;
+    }
+    async function fetchHistory() {
+      try {
+        const ordersRef = collection(db, "orders");
+        const q = query(
+          ordersRef,
+          where("customerPhone", "==", selectedEntry!.phone),
+        );
+        const snap = await getDocs(q);
+        const events: LedgerEvent[] = [];
+        for (const docSnap of snap.docs) {
+          const d = docSnap.data();
+          const khataDue = Number(d.khataDue || 0);
+          if (khataDue > 0) {
+            events.push({
+              date: d.createdAt
+                ? new Date(d.createdAt).toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })
+                : "—",
+              type: "bill",
+              description: `POS Sale — ${d.items?.map((i: { itemName: string }) => i.itemName).join(", ") || "Order"} (Invoice: ${d.invoiceNumber || d.id || "—"})`,
+              debit: khataDue,
+              credit: 0,
+              balance: 0,
+            });
+          }
+        }
+        events.sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+        );
+        if (events.length === 0 && selectedEntry!.totalDue > 0) {
+          setRealLedgerEvents(buildMockLedger(selectedEntry!));
+        } else {
+          setRealLedgerEvents(events);
+        }
+      } catch (err) {
+        console.error("Failed to fetch khata history:", err);
+        if (selectedEntry!.totalDue > 0) {
+          setRealLedgerEvents(buildMockLedger(selectedEntry!));
+        }
+      }
+    }
+    fetchHistory();
+  }, [selectedEntry]);
 
   // ── Computed values ────────────────────────────────────────────────────────
   const totalDue = selectedEntry?.totalDue ?? 0;
@@ -313,7 +369,10 @@ export default function KhataSettlementPage() {
       );
       setSelectedEntry(updatedEntry);
       setAllEntries(updatedEntries);
-      await fsUpdateDoc("khata", selectedEntry.phone, {
+      const docId = (selectedEntry as unknown as Record<string, unknown>).id as
+        | string
+        | undefined;
+      await fsUpdateDoc("khata", docId || selectedEntry.phone, {
         totalDue: remaining,
       });
 
@@ -405,7 +464,7 @@ export default function KhataSettlementPage() {
     }
   }
 
-  const ledgerEvents = selectedEntry ? buildMockLedger(selectedEntry) : [];
+  const ledgerEvents = realLedgerEvents;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (

@@ -25,6 +25,15 @@ export function invalidateLetterheadCache() {
 }
 
 export function triggerPrint(printAreaId: string) {
+  const el = document.getElementById(printAreaId);
+  if (!el) {
+    console.warn(`[triggerPrint] Element #${printAreaId} not found`);
+    return;
+  }
+
+  // Make the print area visible BEFORE injecting print CSS and calling print
+  el.style.display = "block";
+
   const styleId = `print-override-${printAreaId}`;
   let style = document.getElementById(styleId) as HTMLStyleElement | null;
   if (!style) {
@@ -32,15 +41,33 @@ export function triggerPrint(printAreaId: string) {
     style.id = styleId;
     document.head.appendChild(style);
   }
+
+  // Use visibility approach so nested elements work regardless of parent nesting
   style.textContent = `
     @media print {
-      body > * { display: none !important; }
-      #${printAreaId} { display: block !important; }
+      body * { visibility: hidden !important; }
+      #${printAreaId}, #${printAreaId} * { visibility: visible !important; }
+      #${printAreaId} {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        display: block !important;
+      }
       @page { size: A4 portrait; margin: 15mm; }
     }
   `;
+
   window.print();
-  window.addEventListener("afterprint", () => style?.remove(), { once: true });
+
+  window.addEventListener(
+    "afterprint",
+    () => {
+      el.style.display = "none";
+      style?.remove();
+    },
+    { once: true },
+  );
 }
 
 export function LetterheadLayout({

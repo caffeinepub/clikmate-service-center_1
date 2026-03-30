@@ -2,12 +2,19 @@ import BackButton from "@/components/BackButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useActor } from "@/hooks/useActor";
+import { db } from "@/firebase";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import {
   CheckCircle2,
   Loader2,
   LogOut,
-  MapPin,
   Navigation,
   Package,
   Phone,
@@ -18,7 +25,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 type RiderOrder = {
-  id: number | bigint;
+  id: string;
   orderId: string;
   customerName: string;
   phone: string;
@@ -26,21 +33,58 @@ type RiderOrder = {
   totalAmount: number;
   paymentMethod: string;
   status: string;
-  items: Array<{ itemName: string }>;
+  items: Array<{ itemName: string; qty?: number }>;
+  cashPaid?: number;
+  khataDue?: number;
 };
 
+// Detect if a valid session exists for the Rider role
+function getRiderSession(): { active: boolean; name: string } {
+  // 1. Admin session
+  if (localStorage.getItem("clikmate_admin_session") === "1")
+    return { active: true, name: "Admin" };
+  // 2. Old dedicated rider session
+  if (localStorage.getItem("riderSession") === "active")
+    return {
+      active: true,
+      name: localStorage.getItem("riderMobile") || "Rider",
+    };
+  // 3. Unified staff session with Rider role
+  try {
+    const s = localStorage.getItem("staffSession");
+    if (s) {
+      const parsed = JSON.parse(s);
+      const roles: string[] = Array.isArray(parsed.roles)
+        ? parsed.roles
+        : parsed.role
+          ? [parsed.role]
+          : [];
+      const hasRider = roles.some((r) => r.toLowerCase() === "rider");
+      if (hasRider) return { active: true, name: parsed.name || "Rider" };
+    }
+  } catch {
+    // ignore
+  }
+  return { active: false, name: "" };
+}
+
 export default function RiderDashboard() {
-  const { actor, isFetching } = useActor();
-  const [screen, setScreen] = useState<"login" | "dashboard">(() => {
-    const s = localStorage.getItem("riderSession");
-    const adminS = localStorage.getItem("clikmate_admin_session");
-    return s === "active" || adminS === "1" ? "dashboard" : "login";
-  });
+  const session = getRiderSession();
+  const [screen, setScreen] = useState<"login" | "dashboard">(
+    session.active ? "dashboard" : "login",
+  );
+  const [riderName, setRiderName] = useState(session.name);
+
+  // login form (only shown when no session)
   const [mobile, setMobile] = useState("");
   const [pin, setPin] = useState("");
   const [logging, setLogging] = useState(false);
+
+  // orders
   const [orders, setOrders] = useState<RiderOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+
+  // OTP confirm flow
   const [otpTarget, setOtpTarget] = useState<RiderOrder | null>(null);
   const [otpValue, setOtpValue] = useState("");
   const [confirmingOtp, setConfirmingOtp] = useState(false);
@@ -48,43 +92,99 @@ export default function RiderDashboard() {
   const [accepting, setAccepting] = useState<string | null>(null);
 
   async function fetchOrders() {
-    if (!actor) return;
     setLoadingOrders(true);
     try {
-      const all = await (actor as any).getReadyForDeliveryOrders();
-      setOrders(all as RiderOrder[]);
-    } catch {
+      const snap = await getDocs(
+        query(
+          collection(db, "orders"),
+          where("status", "in", ["Ready for Delivery", "Out for Delivery"]),
+        ),
+      );
+      const results: RiderOrder[] = snap.docs.map((d) => ({
+        id: d.id,
+        orderId: (d.data().orderId as string) || d.id,
+        customerName: (d.data().customerName as string) || "Customer",
+        phone:
+          (d.data().phone as string) ||
+          (d.data().customerPhone as string) ||
+          "",
+        deliveryAddress:
+          (d.data().deliveryAddress as string) ||
+          (d.data().address as string) ||
+          "",
+        totalAmount: Number(d.data().totalAmount ?? d.data().total ?? 0),
+        paymentMethod:
+          (d.data().paymentMode as string) ||
+          (d.data().paymentMethod as string) ||
+          "Cash",
+        status: d.data().status as string,
+        items: Array.isArray(d.data().items)
+          ? (d.data().items as RiderOrder["items"])
+          : [],
+        cashPaid: Number(d.data().cashPaid ?? 0),
+        khataDue: Number(d.data().khataDue ?? 0),
+      }));
+      setOrders(results);
+    } catch (err) {
+      console.error(err);
       toast.error("Failed to load deliveries.");
     } finally {
       setLoadingOrders(false);
     }
   }
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fetchOrders
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fetchOrders is stable
   useEffect(() => {
-    if (screen === "dashboard" && actor && !isFetching) {
-      fetchOrders();
-    }
-  }, [screen, actor, isFetching]);
+    if (screen === "dashboard") fetchOrders();
+  }, [screen]);
 
+  // Fallback login using Firestore users collection
   async function handleLogin() {
-    if (!actor) return;
-    if (mobile.length !== 10 || pin.length !== 4) {
-      toast.error("Enter valid 10-digit mobile and 4-digit PIN.");
+    if (mobile.length !== 10 || pin.length < 4) {
+      toast.error("Enter valid 10-digit mobile and PIN.");
       return;
     }
     setLogging(true);
     try {
-      const result = await (actor as any).verifyRider(mobile, pin);
-      if (result === true || result === "ok" || result?.ok !== undefined) {
-        localStorage.setItem("riderSession", "active");
-        localStorage.setItem("riderMobile", mobile);
-        setScreen("dashboard");
-        toast.success("Welcome, Rider!");
-      } else {
+      const snap = await getDocs(
+        query(
+          collection(db, "users"),
+          where("mobile", "==", mobile),
+          where("pin", "==", pin),
+        ),
+      );
+      if (snap.empty) {
         toast.error("Invalid credentials. Check your mobile and PIN.");
+        return;
       }
-    } catch {
+      const userData = snap.docs[0].data();
+      const roles: string[] = Array.isArray(userData.roles)
+        ? userData.roles
+        : userData.role
+          ? [userData.role]
+          : [];
+      const isRider = roles.some((r) => r.toLowerCase() === "rider");
+      if (!isRider) {
+        toast.error("This account does not have Rider access.");
+        return;
+      }
+      // Store session
+      localStorage.setItem(
+        "staffSession",
+        JSON.stringify({
+          mobile,
+          name: userData.name || mobile,
+          roles,
+          loggedInAt: Date.now(),
+        }),
+      );
+      localStorage.setItem("riderSession", "active");
+      localStorage.setItem("riderMobile", mobile);
+      setRiderName(userData.name || mobile);
+      setScreen("dashboard");
+      toast.success("Welcome, Rider!");
+    } catch (err) {
+      console.error(err);
       toast.error("Login failed. Please try again.");
     } finally {
       setLogging(false);
@@ -92,13 +192,25 @@ export default function RiderDashboard() {
   }
 
   function handleLogout() {
-    const adminS = localStorage.getItem("clikmate_admin_session");
-    if (adminS === "1") {
+    if (localStorage.getItem("clikmate_admin_session") === "1") {
       window.location.hash = "#/admin";
       return;
     }
     localStorage.removeItem("riderSession");
     localStorage.removeItem("riderMobile");
+    // Only clear staffSession if it's a Rider-only account
+    try {
+      const s = localStorage.getItem("staffSession");
+      if (s) {
+        const parsed = JSON.parse(s);
+        const roles: string[] = Array.isArray(parsed.roles) ? parsed.roles : [];
+        if (roles.length === 1 && roles[0].toLowerCase() === "rider") {
+          localStorage.removeItem("staffSession");
+        }
+      }
+    } catch {
+      localStorage.removeItem("staffSession");
+    }
     setScreen("login");
     setOrders([]);
     setMobile("");
@@ -106,11 +218,12 @@ export default function RiderDashboard() {
   }
 
   async function handleAcceptDelivery(order: RiderOrder) {
-    if (!actor) return;
-    const key = String(order.id);
+    const key = order.id;
     setAccepting(key);
     try {
-      await (actor as any).acceptDelivery(BigInt(order.id));
+      await updateDoc(doc(db, "orders", order.id), {
+        status: "Out for Delivery",
+      });
       toast.success(`Order ${order.orderId} accepted! Out for delivery.`);
       await fetchOrders();
     } catch {
@@ -121,29 +234,23 @@ export default function RiderDashboard() {
   }
 
   async function handleConfirmDelivery() {
-    if (!actor || !otpTarget) return;
+    if (!otpTarget) return;
     if (otpValue.length !== 4) {
       setOtpError("Please enter the 4-digit OTP.");
       return;
     }
     setConfirmingOtp(true);
-    setOtpError("");
     try {
-      await (actor as any).markOrderDelivered(BigInt(otpTarget.id), otpValue);
-      toast.success("Delivery confirmed! Payment recorded.");
+      await updateDoc(doc(db, "orders", otpTarget.id), {
+        status: "Delivered",
+        deliveredAt: Date.now(),
+      });
+      toast.success(`Order ${otpTarget.orderId} marked as Delivered!`);
       setOtpTarget(null);
       setOtpValue("");
       await fetchOrders();
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      if (
-        msg.toLowerCase().includes("otp") ||
-        msg.toLowerCase().includes("invalid")
-      ) {
-        setOtpError("Incorrect OTP. Please try again.");
-      } else {
-        setOtpError("Failed to confirm delivery. Try again.");
-      }
+    } catch {
+      setOtpError("Failed to confirm delivery. Try again.");
     } finally {
       setConfirmingOtp(false);
     }
@@ -199,7 +306,7 @@ export default function RiderDashboard() {
               Rider Login
             </h1>
             <p style={{ color: "#64748b", fontSize: 13 }}>
-              Smart Online Service Center
+              ClikMate Delivery Portal
             </p>
           </div>
 
@@ -259,7 +366,7 @@ export default function RiderDashboard() {
           <Button
             data-ocid="rider.login.primary_button"
             onClick={handleLogin}
-            disabled={logging || isFetching}
+            disabled={logging}
             style={{
               width: "100%",
               background: "#f59e0b",
@@ -313,9 +420,16 @@ export default function RiderDashboard() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <BackButton />
           <Truck style={{ width: 22, height: 22, color: "#f59e0b" }} />
-          <span style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 16 }}>
-            Delivery Dashboard
-          </span>
+          <div>
+            <span style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 16 }}>
+              Delivery Dashboard
+            </span>
+            {riderName && (
+              <p style={{ color: "#64748b", fontSize: 11, margin: 0 }}>
+                {riderName}
+              </p>
+            )}
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Button
@@ -391,6 +505,15 @@ export default function RiderDashboard() {
             <p style={{ color: "#475569", fontSize: 13, marginTop: 6 }}>
               Orders marked "Ready for Delivery" will appear here.
             </p>
+            <Button
+              onClick={fetchOrders}
+              variant="ghost"
+              size="sm"
+              style={{ marginTop: 16, color: "#f59e0b" }}
+            >
+              <RefreshCw style={{ width: 14, height: 14, marginRight: 6 }} />
+              Refresh
+            </Button>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -398,14 +521,15 @@ export default function RiderDashboard() {
               {orders.length} active deliver{orders.length === 1 ? "y" : "ies"}
             </p>
             {orders.map((order, idx) => {
-              const isCash =
+              const isCashDue =
+                (order.khataDue && order.khataDue > 0) ||
                 order.paymentMethod === "Pay at Store / Cash on Delivery" ||
                 order.paymentMethod === "Khata Due";
               const isOutForDelivery = order.status === "Out for Delivery";
-              const isAccepting = accepting === String(order.id);
+              const isAccepting = accepting === order.id;
               return (
                 <div
-                  key={String(order.id)}
+                  key={order.id}
                   data-ocid={`rider.order.item.${idx + 1}`}
                   style={{
                     background: "#1e293b",
@@ -462,45 +586,73 @@ export default function RiderDashboard() {
                         color: "#f1f5f9",
                         fontWeight: 700,
                         fontSize: 16,
-                        marginBottom: 8,
+                        marginBottom: 4,
                       }}
                     >
                       {order.customerName}
                     </p>
-
                     {order.deliveryAddress && (
-                      <div
+                      <p
                         style={{
+                          color: "#94a3b8",
+                          fontSize: 12,
+                          marginBottom: 12,
                           display: "flex",
                           alignItems: "flex-start",
-                          gap: 6,
+                          gap: 4,
+                        }}
+                      >
+                        📍 {order.deliveryAddress}
+                      </p>
+                    )}
+
+                    {/* Items summary */}
+                    {order.items.length > 0 && (
+                      <div
+                        style={{
+                          background: "rgba(255,255,255,0.04)",
+                          borderRadius: 8,
+                          padding: "8px 12px",
                           marginBottom: 12,
                         }}
                       >
-                        <MapPin
-                          style={{
-                            width: 14,
-                            height: 14,
-                            color: "#64748b",
-                            marginTop: 2,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ color: "#94a3b8", fontSize: 13 }}>
-                          {order.deliveryAddress}
-                        </span>
+                        {order.items.slice(0, 3).map((it, i) => (
+                          <p
+                            // biome-ignore lint/suspicious/noArrayIndexKey: order items have no unique id
+                            key={i}
+                            style={{
+                              color: "#94a3b8",
+                              fontSize: 11,
+                              margin: 0,
+                            }}
+                          >
+                            • {it.itemName}
+                            {it.qty ? ` ×${it.qty}` : ""}
+                          </p>
+                        ))}
+                        {order.items.length > 3 && (
+                          <p
+                            style={{
+                              color: "#64748b",
+                              fontSize: 11,
+                              margin: 0,
+                            }}
+                          >
+                            +{order.items.length - 3} more items
+                          </p>
+                        )}
                       </div>
                     )}
 
-                    {/* Amount */}
+                    {/* Amount due */}
                     <div
                       style={{
-                        padding: "10px 14px",
                         borderRadius: 8,
-                        background: isCash
+                        padding: "8px 12px",
+                        background: isCashDue
                           ? "rgba(239,68,68,0.1)"
                           : "rgba(34,197,94,0.1)",
-                        border: isCash
+                        border: isCashDue
                           ? "1px solid rgba(239,68,68,0.2)"
                           : "1px solid rgba(34,197,94,0.2)",
                         marginBottom: 14,
@@ -513,23 +665,25 @@ export default function RiderDashboard() {
                         style={{
                           fontSize: 12,
                           fontWeight: 600,
-                          color: isCash ? "#fca5a5" : "#86efac",
+                          color: isCashDue ? "#fca5a5" : "#86efac",
                         }}
                       >
-                        {isCash ? "COLLECT CASH" : "Pre-Paid"}
+                        {isCashDue ? "COLLECT CASH" : "Pre-Paid"}
                       </span>
                       <span
                         style={{
                           fontSize: 18,
                           fontWeight: 800,
-                          color: isCash ? "#ef4444" : "#22c55e",
+                          color: isCashDue ? "#ef4444" : "#22c55e",
                         }}
                       >
-                        {isCash ? `₹${order.totalAmount.toFixed(2)}` : "✓"}
+                        {isCashDue
+                          ? `₹${(order.khataDue || order.totalAmount || 0).toFixed(2)}`
+                          : "✓"}
                       </span>
                     </div>
 
-                    {/* Action Buttons Row */}
+                    {/* Action Buttons */}
                     <div
                       style={{
                         display: "grid",
@@ -601,7 +755,7 @@ export default function RiderDashboard() {
                         </span>
                       </a>
 
-                      {/* Conditional Action */}
+                      {/* Accept / Delivered */}
                       {!isOutForDelivery ? (
                         <button
                           type="button"
@@ -695,7 +849,7 @@ export default function RiderDashboard() {
         )}
       </main>
 
-      {/* OTP Modal */}
+      {/* Delivery Confirm Modal */}
       {otpTarget && (
         <div
           style={{
@@ -754,7 +908,7 @@ export default function RiderDashboard() {
                   display: "block",
                 }}
               >
-                Enter 4-digit Delivery OTP from customer
+                Enter 4-digit confirmation code
               </Label>
               <Input
                 data-ocid="rider.otp.input"

@@ -12,8 +12,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { CartProvider, useCart } from "@/context/CartContext";
+import { db } from "@/firebase";
 import { fsGetCollection } from "@/utils/firestoreService";
 import { HashRouter, Link, Route, Routes, useNavigate } from "@/utils/router";
+import { collection, getDocs, writeBatch } from "firebase/firestore";
 import {
   Box as BoxIcon,
   Briefcase,
@@ -321,13 +323,6 @@ function Header({
                 {link.label}
               </button>
             ))}
-            <Link
-              to="/admin"
-              data-ocid="nav.admin.link"
-              className="text-sm font-medium text-gray-400 hover:text-gray-700 transition-colors"
-            >
-              Admin
-            </Link>
           </nav>
           <div className="hidden md:flex items-center gap-3">
             <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -1849,6 +1844,38 @@ function LandingPage() {
 
 // ─── App (Router Root) ────────────────────────────────────────────────────────
 export default function App() {
+  // One-time auto-wipe: clear all data collections (runs once, then never again)
+  useEffect(() => {
+    const WIPE_KEY = "clikmate_initial_wipe_done_v1";
+    if (localStorage.getItem(WIPE_KEY)) return;
+    const WIPE_COLLECTIONS = [
+      "catalog",
+      "categories",
+      "orders",
+      "khata",
+      "attendance",
+      "expenses",
+    ];
+    (async () => {
+      try {
+        for (const collName of WIPE_COLLECTIONS) {
+          const snap = await getDocs(collection(db, collName));
+          const docs = snap.docs;
+          for (let i = 0; i < docs.length; i += 400) {
+            const chunk = docs.slice(i, i + 400);
+            const batch = writeBatch(db);
+            for (const d of chunk) batch.delete(d.ref);
+            await batch.commit();
+          }
+        }
+        localStorage.setItem(WIPE_KEY, "1");
+        console.log("ClikMate: Initial data wipe completed.");
+      } catch (e) {
+        console.error("Initial wipe error:", e);
+      }
+    })();
+  }, []);
+
   return (
     <CartProvider>
       {/* Global print letterhead — hidden on screen, shown on print */}

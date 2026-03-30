@@ -686,16 +686,14 @@ function ItemFormModal({
         return;
       }
       if (editItem) {
-        const updatedItem: CatalogItem & Record<string, unknown> = {
-          ...editItem,
+        const isProduct = form.itemType === "product";
+        // Build patch — never pass undefined to Firestore (causes updateDoc to throw)
+        const updatedItem: Record<string, unknown> = {
           name: form.name,
           category: form.category,
           description: form.description,
           price: form.saleRate || form.price,
-          stockStatus:
-            form.itemType === "product"
-              ? form.stockStatus || "In Stock"
-              : "N/A",
+          stockStatus: isProduct ? form.stockStatus || "In Stock" : "N/A",
           requiredDocuments:
             form.category === "CSC & Govt Services"
               ? form.requiredDocuments
@@ -705,31 +703,31 @@ function ItemFormModal({
           mediaTypes,
           itemType: form.itemType,
           saleRate: sr,
-          purchaseRate:
-            form.itemType === "product"
-              ? Number.parseFloat(form.purchaseRate) || 0
-              : 0,
-          quantity:
-            form.itemType === "product"
-              ? Number.parseInt(form.quantity) || 0
-              : undefined,
-          reorderLevel:
-            form.itemType === "product"
-              ? Number.parseInt(form.alertBefore || form.reorderLevel) || 5
-              : undefined,
-          alertBefore:
-            form.itemType === "product"
-              ? Number.parseInt(form.alertBefore || form.reorderLevel) || 5
-              : undefined,
+          purchaseRate: isProduct
+            ? Number.parseFloat(form.purchaseRate) || 0
+            : 0,
           barcode: form.barcode || "",
           gstPercentage: Number(form.gstPercentage) || 0,
           hsnSac: form.hsnSac || "",
+          // Preserve existing id/productId fields from editItem
+          id: editItem.id,
+          productId: editItem.productId,
         };
-        await fsUpdateDoc(
-          "catalog",
-          String(editItem.productId || editItem.id),
-          updatedItem,
-        );
+        // Product-only fields: set to 0 for Services (avoids Firestore undefined error)
+        if (isProduct) {
+          updatedItem.quantity = Number.parseInt(form.quantity) || 0;
+          updatedItem.reorderLevel =
+            Number.parseInt(form.alertBefore || form.reorderLevel) || 5;
+          updatedItem.alertBefore =
+            Number.parseInt(form.alertBefore || form.reorderLevel) || 5;
+        } else {
+          // For services, explicitly set to 0 so stale product values are cleared
+          updatedItem.quantity = 0;
+          updatedItem.reorderLevel = 0;
+          updatedItem.alertBefore = 0;
+        }
+        const docId = String(editItem.productId || editItem.id);
+        await fsUpdateDoc("catalog", docId, updatedItem);
         toast.success("Item updated!");
         onSaved();
       } else {
@@ -9578,7 +9576,6 @@ function SettingsSection() {
 
       <BrandSettingsCard />
       <SyncToCloudCard />
-      <FactoryResetCard />
     </div>
   );
 }
@@ -9778,207 +9775,6 @@ function SyncToCloudCard() {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Factory Reset Card ────────────────────────────────────────────────────────
-function FactoryResetCard() {
-  const [showConfirm, setShowConfirm] = React.useState(false);
-  const [wiping, setWiping] = React.useState(false);
-
-  const handleFactoryReset = async () => {
-    const WIPE_COLLECTIONS = [
-      "catalog",
-      "categories",
-      "orders",
-      "khata",
-      "attendance",
-      "expenses",
-    ];
-    try {
-      setWiping(true);
-      let totalDeleted = 0;
-      for (const collName of WIPE_COLLECTIONS) {
-        try {
-          const snap = await getDocs(collection(db, collName));
-          const docs = snap.docs;
-          for (let i = 0; i < docs.length; i += 400) {
-            const chunk = docs.slice(i, i + 400);
-            const batch = writeBatch(db);
-            for (const d of chunk) {
-              batch.delete(d.ref);
-            }
-            await batch.commit();
-          }
-          totalDeleted += docs.length;
-        } catch (collErr) {
-          toast.error(`Failed to wipe '${collName}': ${String(collErr)}`);
-        }
-      }
-      toast.success(
-        `✓ Wiped ${totalDeleted} records. App is ready for live operations.`,
-      );
-      setShowConfirm(false);
-    } catch (e) {
-      console.error("Factory reset failed:", e);
-      toast.error(`Wipe failed: ${String(e)}`);
-    } finally {
-      setWiping(false);
-    }
-  };
-
-  return (
-    <div
-      style={{
-        ...S.card,
-        marginTop: 24,
-        border: "1px solid rgba(239,68,68,0.4)",
-        background: "rgba(30,10,10,0.7)",
-      }}
-    >
-      <div
-        style={{
-          padding: "16px 20px",
-          borderBottom: "1px solid rgba(239,68,68,0.2)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: "rgba(239,68,68,0.2)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 18,
-          }}
-        >
-          🗑
-        </div>
-        <div>
-          <h3
-            style={{
-              color: "#fca5a5",
-              fontSize: 15,
-              fontWeight: 600,
-              margin: 0,
-            }}
-          >
-            ⚠ DANGER ZONE — Factory Reset
-          </h3>
-          <p
-            style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, margin: 0 }}
-          >
-            Permanently wipe all test/dummy data before going live
-          </p>
-        </div>
-      </div>
-      <div style={{ padding: 20 }}>
-        <p
-          style={{
-            color: "rgba(255,180,180,0.85)",
-            fontSize: 13,
-            marginBottom: 16,
-            lineHeight: 1.6,
-          }}
-        >
-          This will permanently delete <strong>ALL documents</strong> from the
-          following Firestore collections:{" "}
-          <strong>catalog, categories, orders, khata, and attendance</strong>.
-          <br />
-          <span style={{ color: "#fca5a5" }}>
-            Your login credentials (<code>users</code>) and app settings will
-            NOT be affected.
-          </span>
-        </p>
-
-        {!showConfirm ? (
-          <button
-            type="button"
-            data-ocid="settings.delete_button"
-            onClick={() => setShowConfirm(true)}
-            style={{
-              background: "rgba(239,68,68,0.15)",
-              border: "1px solid rgba(239,68,68,0.5)",
-              color: "#fca5a5",
-              borderRadius: 8,
-              padding: "10px 20px",
-              fontSize: 14,
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
-          >
-            🗑 Wipe All Test Data
-          </button>
-        ) : (
-          <div
-            style={{
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.3)",
-              borderRadius: 10,
-              padding: 16,
-            }}
-          >
-            <p
-              style={{
-                color: "#f87171",
-                fontWeight: 700,
-                marginBottom: 12,
-                fontSize: 14,
-              }}
-            >
-              ⚠ This action CANNOT be undone. Are you absolutely sure?
-            </p>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                type="button"
-                data-ocid="settings.cancel_button"
-                onClick={() => setShowConfirm(false)}
-                disabled={wiping}
-                style={{
-                  background: "rgba(255,255,255,0.08)",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  color: "white",
-                  borderRadius: 8,
-                  padding: "10px 18px",
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                data-ocid="settings.confirm_button"
-                onClick={handleFactoryReset}
-                disabled={wiping}
-                style={{
-                  background: wiping
-                    ? "rgba(239,68,68,0.3)"
-                    : "rgba(239,68,68,0.8)",
-                  border: "1px solid #ef4444",
-                  color: "white",
-                  borderRadius: 8,
-                  padding: "10px 18px",
-                  fontSize: 13,
-                  cursor: wiping ? "not-allowed" : "pointer",
-                  fontWeight: 700,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                {wiping ? "⏳ Wiping..." : "Yes, Wipe Everything"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -13686,10 +13482,13 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [posSales, setPosSales] = useState<
     Array<{
-      id: bigint;
+      id: string | bigint;
       totalAmount: number;
       paymentMethod: string;
-      createdAt: bigint;
+      cashPaid?: number;
+      upiPaid?: number;
+      khataDue?: number;
+      createdAt: number | bigint;
     }>
   >([]);
   const [loading, setLoading] = useState(false);
@@ -13751,22 +13550,31 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
   ];
   const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer"];
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     setLoading(true);
-    const inc = storageGet<ManualIncomeEntry[]>(STORAGE_KEYS.manualIncomes, []);
-    const exp = storageGet<ExpenseEntry[]>(STORAGE_KEYS.expenses, []);
-    const sales = storageGet<
-      Array<{
-        id: bigint;
+    try {
+      const inc = storageGet<ManualIncomeEntry[]>(
+        STORAGE_KEYS.manualIncomes,
+        [],
+      );
+      const exp = storageGet<ExpenseEntry[]>(STORAGE_KEYS.expenses, []);
+      const firestoreOrders = await fsGetCollection<{
+        id: string;
         totalAmount: number;
         paymentMethod: string;
-        createdAt: bigint;
-      }>
-    >(STORAGE_KEYS.posSales, []);
-    setIncomes(inc);
-    setExpenses(exp);
-    setPosSales(sales);
-    setLoading(false);
+        cashPaid?: number;
+        upiPaid?: number;
+        khataDue?: number;
+        createdAt: number;
+      }>("orders");
+      setIncomes(inc);
+      setExpenses(exp);
+      setPosSales(firestoreOrders as any);
+    } catch (e) {
+      console.error("Failed to load orders for tally:", e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -14219,23 +14027,50 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
 
       {/* Today's Tally Cards */}
       {(() => {
+        // Firestore createdAt is Date.now() in milliseconds (not bigint nanoseconds)
         const todaySales = posSales.filter((s) => {
-          const d = new Date(Number(s.createdAt) / 1_000_000);
-          return d.toDateString() === new Date().toDateString();
+          const ms =
+            typeof s.createdAt === "bigint"
+              ? Number(s.createdAt) / 1_000_000
+              : Number(s.createdAt);
+          return new Date(ms).toDateString() === new Date().toDateString();
         });
-        const totalCash = todaySales
-          .filter((s) => s.paymentMethod === "Cash")
-          .reduce((a, c) => a + c.totalAmount, 0);
-        const totalUpi = todaySales
-          .filter((s) => s.paymentMethod === "UPI")
-          .reduce((a, c) => a + c.totalAmount, 0);
-        const totalSplit = todaySales
-          .filter((s) => s.paymentMethod === "Split")
-          .reduce((a, c) => a + c.totalAmount, 0);
-        const totalKhata = todaySales
-          .filter((s) => s.paymentMethod === "Khata")
-          .reduce((a, c) => a + c.totalAmount, 0);
-        const totalNet = todaySales.reduce((a, c) => a + c.totalAmount, 0);
+
+        // Cash: pure Cash orders + cashPaid portion from all split orders
+        const totalCash = todaySales.reduce((acc, s) => {
+          const pm = s.paymentMethod || "";
+          if (pm === "Cash") return acc + (s.totalAmount || 0);
+          if (pm.includes("Cash") && pm.includes("Khata"))
+            return acc + (s.cashPaid || 0);
+          if (pm.includes("Cash") && pm.includes("UPI"))
+            return acc + (s.cashPaid || 0);
+          return acc;
+        }, 0);
+
+        // UPI: pure UPI orders + upiPaid from Cash+UPI splits
+        const totalUpi = todaySales.reduce((acc, s) => {
+          const pm = s.paymentMethod || "";
+          if (pm === "UPI") return acc + (s.totalAmount || 0);
+          if (pm.includes("Cash") && pm.includes("UPI"))
+            return acc + (s.upiPaid || 0);
+          return acc;
+        }, 0);
+
+        // Split (Cash+UPI only) — split into Cash+UPI above, show 0 here
+        const totalSplit = 0;
+
+        // Khata: khataDue from split Cash+Khata orders
+        const totalKhata = todaySales.reduce((acc, s) => {
+          const pm = s.paymentMethod || "";
+          if (pm.includes("Cash") && pm.includes("Khata"))
+            return acc + (s.khataDue || 0);
+          return acc;
+        }, 0);
+
+        const totalNet = todaySales.reduce(
+          (a, c) => a + (c.totalAmount || 0),
+          0,
+        );
         const tallyItems = [
           { label: "Cash", value: totalCash, color: "#10b981" },
           { label: "UPI", value: totalUpi, color: "#3b82f6" },
