@@ -2,6 +2,7 @@ import type { CatalogItem, backendInterface } from "@/backend.d";
 import BackButton from "@/components/BackButton";
 import { useActor } from "@/hooks/useActor";
 import { useAllCatalogItems } from "@/hooks/useQueries";
+import { fsGetCollection } from "@/utils/firestoreService";
 import {
   Bell,
   ChevronRight,
@@ -562,23 +563,38 @@ function StaffCatalogView() {
 }
 
 // ─── Order History View (read-only) ──────────────────────────────────────────
-function StaffOrderHistoryView({ actor }: { actor: backendInterface | null }) {
+function StaffOrderHistoryView({
+  actor: _actor,
+}: { actor: backendInterface | null }) {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const formatDate = (ts: any) => {
+    if (!ts) return "-";
+    const d = ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
+    return d.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   useEffect(() => {
-    if (!actor) {
-      setLoading(false);
-      return;
-    }
-    (actor as any)
-      .getOrders()
-      .then((res: any[]) => {
-        setOrders(res || []);
-        setLoading(false);
+    setLoading(true);
+    fsGetCollection("orders")
+      .then((data: any[]) => {
+        const sorted = [...data].sort((a, b) => {
+          const ta = a.createdAt?.seconds ?? 0;
+          const tb = b.createdAt?.seconds ?? 0;
+          return tb - ta;
+        });
+        setOrders(sorted);
       })
-      .catch(() => setLoading(false));
-  }, [actor]);
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div style={{ padding: 24 }}>
@@ -645,7 +661,7 @@ function StaffOrderHistoryView({ actor }: { actor: backendInterface | null }) {
                     marginTop: 2,
                   }}
                 >
-                  {order.createdAt || order.timestamp || "—"}
+                  {formatDate(order.createdAt) || order.timestamp || "—"}
                 </div>
               </div>
               <div style={{ color: "#f59e0b", fontWeight: 700, fontSize: 15 }}>

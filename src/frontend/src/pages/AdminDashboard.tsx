@@ -1,4 +1,4 @@
-import { ExternalBlob } from "@/backend";
+import type { ExternalBlob } from "@/backend";
 import type {
   CatalogItem,
   CatalogItemInput,
@@ -6478,16 +6478,19 @@ function ActiveOrdersSection() {
   const [uploadingFinalId, setUploadingFinalId] = useState<bigint | null>(null);
 
   async function handleUploadFinalOutput(orderId: bigint, file: File) {
-    if (!actor) return;
     setUploadingFinalId(orderId);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const blob = ExternalBlob.fromBytes(bytes);
-      await (actor as unknown as backendInterface).uploadCscFinalOutput(
-        orderId,
-        blob,
-      );
-      toast.success("Final output uploaded! Customer can now download it.");
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await fsUpdateDoc("orders", String(orderId), {
+        finalOutputUrl: dataUrl,
+        finalOutputName: file.name,
+      });
+      toast.success("Final output saved! Customer can now download it.");
       loadOrders();
     } catch {
       toast.error("Failed to upload final output.");
@@ -6497,15 +6500,15 @@ function ActiveOrdersSection() {
   }
 
   function loadOrders() {
-    if (!actor) return;
     setLoading(true);
-    (actor as unknown as { getAllShopOrders: () => Promise<ShopOrder[]> })
-      .getAllShopOrders()
+    fsGetCollection<any>("orders")
       .then((data) => {
-        const sorted = [...data].sort(
-          (a, b) => Number(b.createdAt) - Number(a.createdAt),
-        );
-        setOrders(sorted);
+        const sorted = [...data].sort((a: any, b: any) => {
+          const ta = a.createdAt?.seconds ?? 0;
+          const tb = b.createdAt?.seconds ?? 0;
+          return tb - ta;
+        });
+        setOrders(sorted as any[]);
       })
       .catch(() => toast.error("Failed to load orders."))
       .finally(() => setLoading(false));
@@ -6514,7 +6517,7 @@ function ActiveOrdersSection() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: loadOrders is stable
   useEffect(() => {
     loadOrders();
-  }, [actor]);
+  }, []);
 
   const activeOrders = orders.filter(
     (o) =>
@@ -8511,7 +8514,6 @@ function ChangePasswordForm() {
 }
 
 function SettingsSection() {
-  const actor = null;
   const [ipWhitelist, setIpWhitelist] = useState(false);
   const [waBotEnabled, setWaBotEnabled] = useState(false);
   const [waRateTemplate, setWaRateTemplate] = useState("");
@@ -8581,29 +8583,24 @@ function SettingsSection() {
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: loaded prevents re-runs
   useEffect(() => {
-    if (!actor || loaded) return;
-    (actor as unknown as backendInterface)
-      .getUpiSettings()
-      .then((settings) => {
-        if (settings) {
-          setUpiId(settings.upiId);
-          setQrCodeUrl(settings.qrCodeUrl);
+    if (loaded) return;
+    fsGetCollection("settings")
+      .then((docs: any[]) => {
+        const doc = docs.find((d: any) => d.id === "upiSettings");
+        if (doc) {
+          setUpiId(doc.upiId ?? "");
+          setQrCodeUrl(doc.qrCodeUrl ?? "");
         }
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, [actor]);
+  }, [loaded]);
 
   async function handleSave() {
-    if (!actor) return;
     setSaving(true);
     try {
-      await (actor as unknown as backendInterface).setUpiSettings(
-        upiId,
-        qrCodeUrl,
-      );
+      await fsUpdateDoc("settings", "upiSettings", { upiId, qrCodeUrl });
       toast.success("UPI settings saved successfully!");
     } catch {
       toast.error("Failed to save UPI settings.");
@@ -12446,7 +12443,6 @@ function TeamAccessSection() {
 // ─── WalletSection ───────────────────────────────────────────────────────────
 
 function WalletSection() {
-  const actor = null;
   const [mobileInput, setMobileInput] = useState("");
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -12454,16 +12450,17 @@ function WalletSection() {
   const [actionLoading, setActionLoading] = useState(false);
 
   async function handleLookup() {
-    if (!actor || mobileInput.length !== 10) {
+    if (mobileInput.length !== 10) {
       toast.error("Enter a valid 10-digit mobile number.");
       return;
     }
     setBalanceLoading(true);
     try {
-      const bal = await (actor as unknown as backendInterface).getWalletBalance(
-        mobileInput,
+      const docs = await fsGetCollection<any>("wallet");
+      const found: any = docs.find(
+        (d: any) => d.id === mobileInput || d.mobile === mobileInput,
       );
-      setBalance(bal);
+      setBalance(found ? (found.balance ?? 0) : 0);
     } catch {
       toast.error("Failed to fetch balance.");
     } finally {
@@ -12472,7 +12469,7 @@ function WalletSection() {
   }
 
   async function handleRecharge() {
-    if (!actor || mobileInput.length !== 10) {
+    if (mobileInput.length !== 10) {
       toast.error("Enter a valid 10-digit mobile number first.");
       return;
     }
@@ -12483,9 +12480,15 @@ function WalletSection() {
     }
     setActionLoading(true);
     try {
-      const newBal = await (
-        actor as unknown as backendInterface
-      ).rechargeWallet(mobileInput, amt);
+      const docs = await fsGetCollection<any>("wallet");
+      const found: any = docs.find(
+        (d: any) => d.id === mobileInput || d.mobile === mobileInput,
+      );
+      const newBal = (found?.balance ?? 0) + amt;
+      await fsUpdateDoc("wallet", mobileInput, {
+        mobile: mobileInput,
+        balance: newBal,
+      });
       setBalance(newBal);
       setAmount("");
       toast.success(`Wallet recharged! New balance: ₹${newBal.toFixed(2)}`);
@@ -12497,7 +12500,7 @@ function WalletSection() {
   }
 
   async function handleDeduct() {
-    if (!actor || mobileInput.length !== 10) {
+    if (mobileInput.length !== 10) {
       toast.error("Enter a valid 10-digit mobile number first.");
       return;
     }
@@ -12508,10 +12511,21 @@ function WalletSection() {
     }
     setActionLoading(true);
     try {
-      const newBal = await (actor as unknown as backendInterface).deductWallet(
-        mobileInput,
-        amt,
+      const docs = await fsGetCollection<any>("wallet");
+      const found: any = docs.find(
+        (d: any) => d.id === mobileInput || d.mobile === mobileInput,
       );
+      const cur = found?.balance ?? 0;
+      if (amt > cur) {
+        toast.error("Insufficient wallet balance.");
+        setActionLoading(false);
+        return;
+      }
+      const newBal = cur - amt;
+      await fsUpdateDoc("wallet", mobileInput, {
+        mobile: mobileInput,
+        balance: newBal,
+      });
       setBalance(newBal);
       setAmount("");
       toast.success(`Amount deducted! New balance: ₹${newBal.toFixed(2)}`);

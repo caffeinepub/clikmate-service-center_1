@@ -1,9 +1,7 @@
-import { ExternalBlob } from "@/backend";
-import type { TypesettingQuoteRequest } from "@/backend";
 import BackButton from "@/components/BackButton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useActor } from "@/hooks/useActor";
+import { fsGetCollection, fsUpdateDoc } from "@/utils/firestoreService";
 import { useNavigate } from "@/utils/router";
 import {
   AlertTriangle,
@@ -25,6 +23,20 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+
+// Local interface replacing Motoko TypesettingQuoteRequest
+interface TypesettingQuoteRequest {
+  id: string;
+  name: string;
+  subject?: string;
+  language?: string;
+  phone?: string;
+  status?: string;
+  quoteNotes?: string;
+  finalPdfUrl?: string;
+  submittedAt?: any;
+  [key: string]: any;
+}
 
 // ---- Types ----------------------------------------------------------------
 
@@ -111,8 +123,8 @@ function getFontName(language: string): string {
 
 // ---- Type badge -----------------------------------------------------------
 
-function TypeBadge({ language }: { language: string }) {
-  const type = getTypeBadge(language);
+function TypeBadge({ language }: { language?: string }) {
+  const type = getTypeBadge(language ?? "");
   const isLatex = type === "LaTeX";
   return (
     <span
@@ -188,12 +200,10 @@ function OrderDetailModal({
   lead,
   onClose,
   onUpdate,
-  actor,
 }: {
   lead: TypesettingQuoteRequest;
   onClose: () => void;
   onUpdate: (updated: Partial<TypesettingQuoteRequest>) => void;
-  actor: any;
 }) {
   const [notes, setNotes] = useState(lead.quoteNotes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -205,11 +215,7 @@ function OrderDetailModal({
   const saveNotes = async () => {
     setSavingNotes(true);
     try {
-      if (!actor) {
-        toast.error("Actor not ready");
-        return;
-      }
-      await actor.updateLeadQuoteNotes(lead.id, notes);
+      await fsUpdateDoc("bulkLeads", String(lead.id), { quoteNotes: notes });
       onUpdate({ quoteNotes: notes });
       toast.success("Notes saved");
     } catch {
@@ -222,17 +228,15 @@ function OrderDetailModal({
   const handleFinalPdfUpload = async (file: File) => {
     setUploadProgress(0);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const blob = ExternalBlob.fromBytes(bytes).withUploadProgress((pct) =>
-        setUploadProgress(pct),
-      );
-      const url = blob.getDirectURL();
-      if (!actor) {
-        toast.error("Actor not ready");
-        return;
-      }
-      await actor.updateLeadFinalPdf(lead.id, url);
-      onUpdate({ finalPdfUrl: url });
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      setUploadProgress(80);
+      await fsUpdateDoc("bulkLeads", String(lead.id), { finalPdfUrl: dataUrl });
+      onUpdate({ finalPdfUrl: dataUrl });
       toast.success("Final PDF uploaded & saved permanently!");
     } catch {
       toast.error("Upload failed. Please try again.");
@@ -246,8 +250,8 @@ function OrderDetailModal({
   );
   const waUrl = `https://wa.me/91${phone.replace(/\D/g, "")}?text=${waMessage}`;
 
-  const fontName = getFontName(lead.language);
-  const typeBadge = getTypeBadge(lead.language);
+  const fontName = getFontName(lead.language ?? "");
+  const typeBadge = getTypeBadge(lead.language ?? "");
 
   return (
     <div
@@ -572,13 +576,11 @@ function OrderDetailModal({
 
 export default function BulkDashboard() {
   const navigate = useNavigate();
-  const { actor } = useActor();
   const [leads, setLeads] = useState<TypesettingQuoteRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [noAuth, setNoAuth] = useState(false);
   const [selectedLead, setSelectedLead] =
     useState<TypesettingQuoteRequest | null>(null);
-  const [draggingId, setDraggingId] = useState<bigint | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<ColumnKey | null>(null);
 
   // ── Route guard: Bulk Staff, Super Admin, or staffSession with Bulk Service role ──
@@ -617,22 +619,15 @@ export default function BulkDashboard() {
     (async () => {
       setLoading(true);
       try {
-        if (!actor) {
-          setNoAuth(true);
-          setLoading(false);
-          return;
-        }
-        const data = await actor.getAllTypesettingQuotes();
-        // Filter: only "Premium Question Paper Design" or B2B Lead orders
+        const data = await fsGetCollection<any>("bulkLeads");
         setLeads(data);
       } catch {
-        setNoAuth(true);
         setLeads([]);
       } finally {
         setLoading(false);
       }
     })();
-  }, [isAuthorized, actor]);
+  }, [isAuthorized]);
 
   const sessionMobile = (() => {
     try {
@@ -665,13 +660,7 @@ export default function BulkDashboard() {
     if (draggingId === null) return;
     const newStatus = STATUS_MAP[colKey];
     try {
-      if (!actor) {
-        toast.error("Actor not ready");
-        return;
-      }
-      await actor.updateTypesettingQuoteStatus(draggingId, {
-        status: newStatus,
-      });
+      await fsUpdateDoc("bulkLeads", String(draggingId), { status: newStatus });
       setLeads((prev) =>
         prev.map((l) =>
           l.id === draggingId ? { ...l, status: newStatus } : l,
@@ -686,7 +675,7 @@ export default function BulkDashboard() {
   };
 
   const updateLead = (
-    id: bigint,
+    id: string,
     updated: Partial<TypesettingQuoteRequest>,
   ) => {
     setLeads((prev) =>
@@ -773,21 +762,6 @@ export default function BulkDashboard() {
       </header>
 
       {/* No auth warning */}
-      {noAuth && (
-        <div
-          data-ocid="bulk.dashboard.error_state"
-          className="mx-6 mt-4 flex items-center gap-3 rounded-xl px-4 py-3 text-sm"
-          style={{
-            background: "rgba(245,158,11,0.1)",
-            border: "1px solid rgba(245,158,11,0.25)",
-            color: "#fcd34d",
-          }}
-        >
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          Admin session required to load B2B leads. Ask the Super Admin to log
-          in first, or access via Admin Dashboard.
-        </div>
-      )}
 
       {/* ── Kanban Board ── */}
       <main className="relative flex-1 p-6 overflow-x-auto">
@@ -805,7 +779,7 @@ export default function BulkDashboard() {
           <div className="flex gap-5 min-w-max pb-8">
             {COLUMNS.map((col) => {
               const colLeads = leads.filter((l) =>
-                col.statuses.includes(l.status),
+                col.statuses.includes(l.status ?? ""),
               );
               const isDragOver = dragOverCol === col.key;
               return (
@@ -890,7 +864,6 @@ export default function BulkDashboard() {
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
           onUpdate={(updated) => updateLead(selectedLead.id, updated)}
-          actor={actor}
         />
       )}
     </div>

@@ -369,10 +369,12 @@ export default function KhataSettlementPage() {
       );
       setSelectedEntry(updatedEntry);
       setAllEntries(updatedEntries);
-      const docId = (selectedEntry as unknown as Record<string, unknown>).id as
-        | string
-        | undefined;
-      await fsUpdateDoc("khata", docId || selectedEntry.phone, {
+      const docId = (selectedEntry as any).id as string;
+      if (!docId) {
+        toast.error("Cannot update: missing document ID");
+        return;
+      }
+      await fsUpdateDoc("khata", docId, {
         totalDue: remaining,
       });
 
