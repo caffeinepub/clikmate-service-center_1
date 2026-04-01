@@ -98,6 +98,7 @@ export interface CatalogItemInput {
     mediaTypes: Array<string>;
 }
 export interface KhataEntry {
+    id?: string;
     customerName: string;
     lastUpdated: bigint;
     totalDue: number;

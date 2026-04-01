@@ -3488,7 +3488,12 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
         e.phone === duePhone ? { ...e, totalDue: newDue } : e,
       );
       setKhataList(updated);
-      await fsUpdateDoc("khata", existing.phone, { totalDue: newDue });
+      if (!existing.id) {
+        toast.error("Cannot update: Khata record missing ID. Try refreshing.");
+        setSaving(false);
+        return;
+      }
+      await fsUpdateDoc("khata", existing.id, { totalDue: newDue });
     } else {
       const newEntry = {
         phone: duePhone,
@@ -3525,7 +3530,12 @@ function AccountsPanel({ onNewBill }: { onNewBill?: () => void }) {
     );
     setKhataList(updated);
     if (target) {
-      await fsUpdateDoc("khata", target.phone, { totalDue: newDue });
+      if (!target.id) {
+        toast.error("Cannot update: Khata record missing ID. Try refreshing.");
+        setSaving(false);
+        return;
+      }
+      await fsUpdateDoc("khata", target.id, { totalDue: newDue });
     }
     const newBal = Math.max(
       0,
