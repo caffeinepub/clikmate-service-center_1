@@ -620,14 +620,16 @@ function ItemFormModal({
   useEffect(() => {
     if (open) {
       if (editItem) {
-        const mediaFiles: MediaFile[] = editItem.mediaFiles.map(
+        const mediaFiles: MediaFile[] = (editItem.mediaFiles ?? []).map(
           (blob, idx) => ({
             id: `existing-${idx}`,
             previewUrl:
               typeof blob === "string"
                 ? blob
                 : (blob as any).getDirectURL?.() || "",
-            type: (editItem.mediaTypes[idx] || "image") as "image" | "video",
+            type: ((editItem.mediaTypes ?? [])[idx] || "image") as
+              | "image"
+              | "video",
             name: `Media ${idx + 1}`,
             progress: 100,
             existingBlob: blob as unknown as ExternalBlob,
@@ -1624,11 +1626,11 @@ function ProductFormModal({
         quantity:
           mainCategoryProd === "product"
             ? Number.parseInt(form.quantity) || 0
-            : undefined,
+            : 0,
         reorderLevel:
           mainCategoryProd === "product"
             ? Number.parseInt(form.reorderLevel) || 5
-            : undefined,
+            : 0,
       };
       const existingItems2 = await fsGetCollection<any>("catalog");
       const productId2 = generateProductId(existingItems2);
@@ -4601,17 +4603,15 @@ function LiveOperationalDashboard() {
     }
     try {
       const todayStr = new Date().toISOString().split("T")[0];
-      const newExpense: ExpenseEntry = {
-        id: Date.now() as unknown as bigint,
+      await fsAddDoc("expenses", {
         category: quickExpenseForm.category,
         amount: Number(quickExpenseForm.amount),
         date: todayStr,
         paymentMode: quickExpenseForm.paymentMode,
         note: quickExpenseForm.note,
         addedBy: "admin",
-        createdAt: Date.now() as unknown as bigint,
-      };
-      storageAddItem(STORAGE_KEYS.expenses, newExpense);
+        createdAt: Date.now(),
+      });
       toast.success("Expense added!");
       setShowExpenseModal(false);
       setQuickExpenseForm({
@@ -6737,9 +6737,9 @@ function ActiveOrdersSection() {
                             maxWidth: 160,
                           }}
                         >
-                          {order.items
-                            .map((i) => `${i.itemName} x${i.qty}`)
-                            .join(", ")}
+                          {(order.items ?? [])
+                            .map((i: any) => `${i.itemName} x${i.qty}`)
+                            .join(", ") || "-"}
                         </td>
                         <td
                           style={{
@@ -7877,9 +7877,9 @@ function OrderHistorySection() {
                         maxWidth: 160,
                       }}
                     >
-                      {order.items
-                        .map((i) => `${i.itemName} x${i.qty}`)
-                        .join(", ")}
+                      {(order.items ?? [])
+                        .map((i: any) => `${i.itemName} x${i.qty}`)
+                        .join(", ") || "-"}
                     </td>
                     <td
                       style={{
@@ -8581,21 +8581,21 @@ function SettingsSection() {
   const [upiId, setUpiId] = useState("");
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [saving, setSaving] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [_loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (loaded) return;
+    // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount
     fsGetCollection("settings")
       .then((docs: any[]) => {
-        const doc = docs.find((d: any) => d.id === "upiSettings");
-        if (doc) {
-          setUpiId(doc.upiId ?? "");
-          setQrCodeUrl(doc.qrCodeUrl ?? "");
+        const upiDoc = docs.find((d: any) => d.id === "upiSettings");
+        if (upiDoc) {
+          setUpiId(upiDoc.upiId ?? "");
+          setQrCodeUrl(upiDoc.qrCodeUrl ?? "");
         }
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, [loaded]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSave() {
     setSaving(true);
@@ -13571,18 +13571,20 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
         STORAGE_KEYS.manualIncomes,
         [],
       );
-      const exp = storageGet<ExpenseEntry[]>(STORAGE_KEYS.expenses, []);
-      const firestoreOrders = await fsGetCollection<{
-        id: string;
-        totalAmount: number;
-        paymentMethod: string;
-        cashPaid?: number;
-        upiPaid?: number;
-        khataDue?: number;
-        createdAt: number;
-      }>("orders");
+      const [exp, firestoreOrders] = await Promise.all([
+        fsGetCollection<any>("expenses"),
+        fsGetCollection<{
+          id: string;
+          totalAmount: number;
+          paymentMethod: string;
+          cashPaid?: number;
+          upiPaid?: number;
+          khataDue?: number;
+          createdAt: number;
+        }>("orders"),
+      ]);
       setIncomes(inc);
-      setExpenses(exp);
+      setExpenses(exp as any);
       setPosSales(firestoreOrders as any);
     } catch (e) {
       console.error("Failed to load orders for tally:", e);
@@ -17130,77 +17132,6 @@ export default function AdminDashboard() {
   }, []);
 
   const isMobile = windowWidth < 768;
-
-  async function seedServices() {
-    const existing: CatalogItem[] = catalogItems;
-    const SERVICE_CATS = [
-      "Printing & Document",
-      "CSC & Govt Forms",
-      "Typing",
-      "Misc",
-    ];
-    const hasServices = existing.some((item) =>
-      SERVICE_CATS.includes(item.category),
-    );
-    if (hasServices) return;
-
-    const services = [
-      { name: "Printing (Single Sided)", category: "Printing & Document" },
-      { name: "Photocopy (Single Sided)", category: "Printing & Document" },
-      { name: "Photocopy (Double Sided)", category: "Printing & Document" },
-      { name: "Printing (Double Sided)", category: "Printing & Document" },
-      { name: "Color Printing (Normal)", category: "Printing & Document" },
-      { name: "Color Printing (Glossy)", category: "Printing & Document" },
-      { name: "PVC Card Printing", category: "Printing & Document" },
-      { name: "ID Card Printing", category: "Printing & Document" },
-      { name: "Normal Typing", category: "Typing" },
-      { name: "Complex Sci/Math Typing", category: "Typing" },
-      { name: "Document Correction", category: "Typing" },
-      { name: "Basic Resume", category: "Typing" },
-      { name: "Professional CV", category: "Typing" },
-      { name: "Resume Update", category: "Typing" },
-      { name: "Basic Form Fill-up", category: "CSC & Govt Forms" },
-      { name: "Complex Form Fill-up", category: "CSC & Govt Forms" },
-      { name: "Scholarship Form Fill-up", category: "CSC & Govt Forms" },
-      { name: "Admit Card / Result Print", category: "CSC & Govt Forms" },
-      { name: "Urgent Passport Size Photo", category: "Misc" },
-      { name: "Lamination (ID Size)", category: "Misc" },
-      { name: "Lamination (A4 Size)", category: "Misc" },
-      { name: "Spiral Binding", category: "Misc" },
-    ];
-
-    const seeded: CatalogItem[] = services.map((svc, i) => ({
-      id: (Date.now() + i) as unknown as bigint,
-      name: svc.name,
-      category: svc.category,
-      description: "",
-      price: "0",
-      stockStatus: "N/A",
-      requiredDocuments: "",
-      requiresPdfCalc: false,
-      published: true,
-      createdAt: (Date.now() + i) as unknown as bigint,
-      mediaFiles: [],
-      mediaTypes: [],
-    }));
-
-    // Seed default services to Firestore if catalog is empty
-    const merged = [...seeded, ...existing];
-    if (existing.length === 0) {
-      for (const svc of merged) {
-        const pid = `ITM-${1000 + merged.indexOf(svc)}`;
-        const withId = { ...svc, productId: pid };
-        await fsSetDoc("catalog", pid, withId);
-      }
-    }
-  }
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable seed
-  useEffect(() => {
-    if (isAdmin && catalogItems.length === 0) {
-      seedServices().catch(console.error);
-    }
-  }, [isAdmin, catalogItems.length]);
 
   // Diagnostic: log whenever catalog or admin state changes
   useEffect(() => {
