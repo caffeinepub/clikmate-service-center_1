@@ -4389,7 +4389,6 @@ function LiveOperationalDashboard() {
   >(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [todayIncomes, setTodayIncomes] = useState<ManualIncomeEntry[]>([]);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [quickExpenseForm, setQuickExpenseForm] = useState({
     amount: "",
@@ -4405,37 +4404,31 @@ function LiveOperationalDashboard() {
   const [stockEditId, setStockEditId] = useState<string | null>(null);
   const [stockAddQty, setStockAddQty] = useState("");
 
-  const loadOrders = async () => {
-    try {
-      setLoading(true);
-      const [all, allExp, inc, cat] = await Promise.all([
-        fsGetCollection<any>("orders"),
-        fsGetCollection<any>("expenses"),
-        Promise.resolve(
-          storageGet<ManualIncomeEntry[]>(STORAGE_KEYS.manualIncomes, []),
-        ),
-        fsGetCollection<any>("catalog"),
-      ]);
-      const sorted = [...all].sort(
-        (a, b) => Number(b.createdAt) - Number(a.createdAt),
-      );
-      const todayStr = new Date().toISOString().split("T")[0];
-      setOrders(sorted);
-      setAllExpenses(allExp);
-      setCatalogItems(cat);
-      setTodayIncomes(
-        inc.filter((i: ManualIncomeEntry) => i.date === todayStr),
-      );
-    } catch (e) {
-      console.error("Failed to load orders:", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only
   useEffect(() => {
-    loadOrders();
+    setLoading(true);
+    // Safety timeout: if Firestore doesn't respond in 5s, show empty cards
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    const unsubOrders = fsSubscribeCollection<any>("orders", (items) => {
+      const sorted = [...items].sort(
+        (a, b) => Number(b.createdAt) - Number(a.createdAt),
+      );
+      setOrders(sorted);
+      setLoading(false);
+      clearTimeout(timeout);
+    });
+    const unsubExpenses = fsSubscribeCollection<any>("expenses", (items) => {
+      setAllExpenses(items);
+    });
+    const unsubCatalog = fsSubscribeCollection<any>("catalog", (items) => {
+      setCatalogItems(items);
+    });
+    return () => {
+      clearTimeout(timeout);
+      unsubOrders();
+      unsubExpenses();
+      unsubCatalog();
+    };
   }, []);
 
   const today = new Date();
@@ -4460,16 +4453,42 @@ function LiveOperationalDashboard() {
     0,
   );
 
-  const todayRevenueCash = todayIncomes
-    .filter((i) => i.paymentMode === "Cash")
-    .reduce((s, i) => s + Number(i.amount), 0);
-  const todayRevenueUpi = todayIncomes
-    .filter((i) => i.paymentMode !== "Cash")
-    .reduce((s, i) => s + Number(i.amount), 0);
+  const todayRevenueCash = (todayOrders as any[]).reduce((sum, o) => {
+    if (o.paymentMethod === "Cash") return sum + Number(o.totalAmount || 0);
+    if (
+      o.paymentMethod === "Split with Cash and UPI" ||
+      o.paymentMethod === "Split with Cash and Khata"
+    ) {
+      return sum + Number(o.cashPaid || 0);
+    }
+    return sum;
+  }, 0);
 
-  const todayExpenseCash: number = 0;
-  const todayExpenseUpi: number = 0;
-  const todayExpenseTotal: number = 0;
+  const todayRevenueUpi = (todayOrders as any[]).reduce((sum, o) => {
+    if (o.paymentMethod === "UPI") return sum + Number(o.totalAmount || 0);
+    if (o.paymentMethod === "Split with Cash and UPI")
+      return sum + Number(o.upiPaid || 0);
+    return sum;
+  }, 0);
+
+  const todayRevenueKhata = (todayOrders as any[]).reduce((sum, o) => {
+    if (o.paymentMethod === "Split with Cash and Khata")
+      return sum + Number(o.khataDue || 0);
+    return sum;
+  }, 0);
+
+  const todayStr2 = new Date().toISOString().split("T")[0];
+  const todayExpensesFiltered = allExpenses.filter((e) => e.date === todayStr2);
+  const todayExpenseCash = todayExpensesFiltered
+    .filter((e) => e.paymentMode === "Cash" || !e.paymentMode)
+    .reduce((s, e) => s + Number(e.amount || 0), 0);
+  const todayExpenseUpi = todayExpensesFiltered
+    .filter((e) => e.paymentMode === "UPI")
+    .reduce((s, e) => s + Number(e.amount || 0), 0);
+  const todayExpenseTotal = todayExpensesFiltered.reduce(
+    (s, e) => s + Number(e.amount || 0),
+    0,
+  );
 
   // ── Period-based calculations (dateRange controlled) ──────────────────────
   function getDateBounds(range: "today" | "week" | "month" | "all") {
@@ -4593,7 +4612,7 @@ function LiveOperationalDashboard() {
     else return;
 
     await fsUpdateDoc("orders", String(order.id), { status: newStatus });
-    loadOrders();
+    toast.success(`Order status updated to "${newStatus}"`);
   };
 
   const handleQuickExpenseSubmit = async () => {
@@ -4620,7 +4639,6 @@ function LiveOperationalDashboard() {
         note: "",
         paymentMode: "Cash",
       });
-      loadOrders();
     } catch (e) {
       console.error("addExpense error:", e);
       toast.error("Failed to add expense.");
@@ -5089,6 +5107,24 @@ function LiveOperationalDashboard() {
                   UPI/Online: &#8377;{todayRevenueUpi.toFixed(0)}
                 </span>
               </div>
+              {todayRevenueKhata > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "#f59e0b",
+                      display: "inline-block",
+                    }}
+                  />
+                  <span
+                    style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }}
+                  >
+                    Khata/Due: &#8377;{todayRevenueKhata.toFixed(0)}
+                  </span>
+                </div>
+              )}
             </div>
             <div
               style={{
@@ -5883,22 +5919,19 @@ function LiveOperationalDashboard() {
                 ({searchFilteredOrders.length})
               </span>
             </h3>
-            <button
-              type="button"
-              onClick={loadOrders}
+            <span
               style={{
-                background: "rgba(255,255,255,0.08)",
-                border: "none",
+                background: "rgba(16,185,129,0.15)",
+                border: "1px solid rgba(16,185,129,0.3)",
                 borderRadius: 6,
-                color: "rgba(255,255,255,0.5)",
+                color: "#10b981",
                 padding: "4px 12px",
                 fontSize: 12,
-                cursor: "pointer",
               }}
               className="no-print"
             >
-              Refresh
-            </button>
+              ● Live
+            </span>
           </div>
           <div style={{ overflowX: "auto" }}>
             {loading ? (
@@ -6467,7 +6500,6 @@ function ShopOrderStatusBadge({ status }: { status: string }) {
 }
 
 function ActiveOrdersSection() {
-  const actor = null;
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<bigint | null>(null);
@@ -6531,14 +6563,9 @@ function ActiveOrdersSection() {
   );
 
   async function handleStatusChange(orderId: bigint, newStatus: string) {
-    if (!actor) return;
     setUpdatingId(orderId);
     try {
-      await (
-        actor as unknown as {
-          updateShopOrderStatus: (id: bigint, status: string) => Promise<void>;
-        }
-      ).updateShopOrderStatus(orderId, newStatus);
+      await fsUpdateDoc("orders", String(orderId), { status: newStatus });
       toast.success(`Status updated to "${newStatus}"`);
       loadOrders();
     } catch {
@@ -13567,10 +13594,6 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const inc = storageGet<ManualIncomeEntry[]>(
-        STORAGE_KEYS.manualIncomes,
-        [],
-      );
       const [exp, firestoreOrders] = await Promise.all([
         fsGetCollection<any>("expenses"),
         fsGetCollection<{
@@ -13583,7 +13606,7 @@ function AuditReportsSection({ isAdmin }: { isAdmin: boolean }) {
           createdAt: number;
         }>("orders"),
       ]);
-      setIncomes(inc);
+      setIncomes([]);
       setExpenses(exp as any);
       setPosSales(firestoreOrders as any);
     } catch (e) {
@@ -17092,7 +17115,7 @@ export default function AdminDashboard() {
   const [isAdmin, setIsAdmin] = useState<boolean>(
     () => localStorage.getItem("clikmate_admin_session") === "1",
   );
-  const [activeSection, setActiveSection] = useState<NavSection>("catalog");
+  const [activeSection, setActiveSection] = useState<NavSection>("dashboard");
 
   const sectionToGroup: Record<string, string> = {
     orders: "sales",
